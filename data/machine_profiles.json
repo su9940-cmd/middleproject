@@ -1,0 +1,155 @@
+{
+  "schema_version": "1.0",
+  "project_scope": "프로젝트용 가상 설비 프로필",
+  "disclaimer": "법령 위반 여부를 자동 확정하지 않으며, 관련 조항과 안전조치의 적용 여부를 담당자가 검토하도록 지원한다. 수치 기준은 실제 적용 전 제조사 매뉴얼과 사업장 기준으로 대체해야 한다.",
+  "profiles": [
+    {
+      "machine_id": "M-0101",
+      "machine_type": "REACTOR",
+      "display_name": "화학 반응기",
+      "profile_version": "REA-P1",
+      "manual_id": "reactor_safety_manual",
+      "manual_path": "data/SOP_260721/reactor_safety_manual.md",
+      "manual_version": "1.4",
+      "operating_characteristics": "발열 반응과 압력 상승 가능성이 있어 온도·압력의 동시 상승을 우선 감시하며, 인화성 가스와 점화원 결합 및 내부 진입 위험을 함께 고려한다.",
+      "current_ml_sensors": ["Temp", "Pressure", "Gas", "Sparks"],
+      "context_features": ["Service_Days", "Shift", "Training"],
+      "recommended_additional_fields": [
+        {"field": "Coolant_Flow", "reason": "냉각 계통 저하와 온도 상승의 원인 구분"},
+        {"field": "Safety_Valve_Status", "reason": "과압 보호장치의 작동 가능 상태 확인"},
+        {"field": "Agitator_Status", "reason": "교반 이상과 국부 과열 가능성 확인"},
+        {"field": "LEL_Percent", "reason": "가스 값을 폭발하한 기준과 연결"},
+        {"field": "Confined_Space_Entry", "reason": "내부 진입 시 밀폐공간 절차 적용 여부 판단"}
+      ],
+      "primary_hazards": ["반응 폭주", "과열·과압", "인화성 가스 누출", "화재·폭발", "밀폐공간 질식·중독"],
+      "risk_patterns": [
+        "Temp와 Pressure의 동시 상승",
+        "Gas 상승과 Sparks 감지의 결합",
+        "냉각 불량 상태에서 온도 상승 지속"
+      ],
+      "demo_emergency_rules": [
+        {"condition": "Temp >= 42", "reason": "반응기 비상 온도 조건"},
+        {"condition": "Pressure >= 45", "reason": "반응기 비상 압력 조건"},
+        {"condition": "Gas >= 8.5 AND Sparks >= 2", "reason": "가스·스파크 복합 비상 조건"}
+      ],
+      "legal_applicability": [
+        {"ref": "산업안전보건기준에 관한 규칙 제92조", "topic": "정비 등의 작업 시 운전정지·잠금·표지", "applies_when": "정비·청소·검사·수리·교체·조정 작업으로 근로자 위험 우려가 있는 경우"},
+        {"ref": "산업안전보건기준에 관한 규칙 제241조", "topic": "화재위험작업 준수사항", "applies_when": "인화성 물질이 존재할 수 있는 구역에서 화기 작업을 하는 경우"},
+        {"ref": "산업안전보건기준에 관한 규칙 제618조·제619조", "topic": "밀폐공간 및 작업 프로그램", "applies_when": "반응기 내부에 사람이 진입하는 경우"}
+      ],
+      "kosha_refs": ["B-M-25-2026", "C-C-49-2026", "C-C-52-2026", "O-2-2023", "C-C-5-2025", "C-C-8-2026", "X-68-2015", "M-69-2012"],
+      "rag_tags": ["반응기", "과열", "과압", "냉각", "안전밸브", "가스", "화기작업", "밀폐공간", "잠금표지"]
+    },
+    {
+      "machine_id": "M-0102",
+      "machine_type": "COMPRESSOR",
+      "display_name": "산업용 압축기",
+      "profile_version": "COM-P1",
+      "manual_id": "compressor_safety_manual",
+      "manual_path": "data/SOP_260721/compressor_safety_manual.md",
+      "manual_version": "1.4",
+      "operating_characteristics": "고속 회전체와 압력 계통을 가진 설비로 진동·회전속도·토출압력의 결합 변화와 윤활·베어링 상태를 우선 확인한다.",
+      "current_ml_sensors": ["Vibration", "Speed", "Pressure"],
+      "context_features": ["Age", "Service_Days"],
+      "recommended_additional_fields": [
+        {"field": "Bearing_Temp", "reason": "베어링 이상 발열 조기 확인"},
+        {"field": "Lubrication_Status", "reason": "윤활 부족·오염과 진동 증가의 원인 구분"},
+        {"field": "Motor_Current", "reason": "과부하와 기계적 저항 증가 확인"},
+        {"field": "Discharge_Pressure", "reason": "현재 단일 Pressure를 토출압력으로 명확화"},
+        {"field": "Safety_Valve_Status", "reason": "압력 보호장치 상태 확인"}
+      ],
+      "primary_hazards": ["베어링 손상", "축 정렬 불량", "윤활 이상", "회전체 접촉", "과압", "잔압 상태 분해"],
+      "risk_patterns": [
+        "Vibration과 Speed의 동시 상승",
+        "Pressure 변동과 기동 시간 증가",
+        "진동 상승과 베어링 온도·이상음 동반"
+      ],
+      "demo_emergency_rules": [
+        {"condition": "Vibration >= 4.8", "reason": "압축기 비상 진동 조건"},
+        {"condition": "Speed >= 3900", "reason": "압축기 비상 회전속도 조건"},
+        {"condition": "Pressure >= 45", "reason": "압축기 비상 압력 조건"}
+      ],
+      "legal_applicability": [
+        {"ref": "산업안전보건기준에 관한 규칙 제92조", "topic": "정비 등의 작업 시 운전정지·잠금·표지", "applies_when": "회전체 또는 압력 계통의 정비·점검 작업을 하는 경우"},
+        {"ref": "산업안전보건기준에 관한 규칙 제93조", "topic": "방호장치 해체 금지 및 복구", "applies_when": "커플링·회전체 방호덮개를 해체하거나 정비 후 재가동하는 경우"}
+      ],
+      "kosha_refs": ["B-M-25-2026", "C-C-49-2026", "C-C-52-2026", "O-2-2023", "M-121-2012", "M-114-2012", "M-103-2017"],
+      "rag_tags": ["압축기", "진동", "회전속도", "압력", "베어링", "윤활", "축정렬", "잔압", "잠금표지", "방호장치"]
+    },
+    {
+      "machine_id": "M-0103",
+      "machine_type": "STORAGE_TANK",
+      "display_name": "인화성 물질 저장탱크",
+      "profile_version": "STO-P1",
+      "manual_id": "storage_tank_safety_manual",
+      "manual_path": "data/SOP_260721/storage_tank_safety_manual.md",
+      "manual_version": "1.4",
+      "operating_characteristics": "회전기계보다 가스 누출·점화원·정전기·환기 상태가 중요하며, 내부 진입 시 밀폐공간 절차 적용 여부를 확인한다.",
+      "current_ml_sensors": ["Gas", "Temp", "Sparks", "Humidity"],
+      "context_features": ["Shift", "Training"],
+      "recommended_additional_fields": [
+        {"field": "LEL_Percent", "reason": "가스 검지값을 폭발하한 대비 비율로 판단"},
+        {"field": "Liquid_Level", "reason": "과충전과 액면 이상 확인"},
+        {"field": "Ventilation_Status", "reason": "가스 체류 위험과 환기 조치 상태 확인"},
+        {"field": "Grounding_Resistance", "reason": "정전기 대전 방지용 접지 상태 확인"},
+        {"field": "Leak_Detected", "reason": "맨홀·플랜지·밸브 누출 여부 명시"},
+        {"field": "Confined_Space_Entry", "reason": "탱크 내부 진입 시 밀폐공간 절차 적용 여부 판단"}
+      ],
+      "primary_hazards": ["인화성 가스 누출", "정전기·스파크 점화", "화재·폭발", "과충전", "밀폐공간 질식·중독"],
+      "risk_patterns": [
+        "Gas 상승과 Sparks 반복 감지",
+        "낮은 Humidity와 Sparks 감지의 결합",
+        "Gas 상승 중 환기 설비 미작동"
+      ],
+      "demo_emergency_rules": [
+        {"condition": "Gas >= 9 AND Sparks >= 3", "reason": "가스·스파크 복합 비상 조건"},
+        {"condition": "Pressure >= 45", "reason": "탱크 비상 압력 조건"}
+      ],
+      "legal_applicability": [
+        {"ref": "산업안전보건기준에 관한 규칙 제92조", "topic": "정비 등의 작업 시 운전정지·잠금·표지", "applies_when": "탱크 부속설비를 정비·점검하는 경우"},
+        {"ref": "산업안전보건기준에 관한 규칙 제241조·제241조의2", "topic": "화재위험작업 및 화재감시자", "applies_when": "가연성 물질 주변에서 용접·용단 등 화기 작업을 하는 경우"},
+        {"ref": "산업안전보건기준에 관한 규칙 제311조", "topic": "폭발위험장소 전기기계·기구", "applies_when": "인화성 증기가 체류할 수 있는 장소에서 전기기기를 사용하는 경우"},
+        {"ref": "산업안전보건기준에 관한 규칙 제325조", "topic": "정전기 화재·폭발 방지", "applies_when": "위험물 저장설비에서 정전기 점화 위험이 있는 경우"},
+        {"ref": "산업안전보건기준에 관한 규칙 제618조·제619조", "topic": "밀폐공간 및 작업 프로그램", "applies_when": "탱크 내부에 사람이 진입하는 경우"}
+      ],
+      "kosha_refs": ["B-M-25-2026", "C-C-49-2026", "C-C-52-2026", "O-2-2023", "B-E-9-2026", "B-E-21-2026", "E-188-2021", "C-C-87-2026", "C-C-1-2025", "P-114-2020"],
+      "rag_tags": ["저장탱크", "가스누출", "폭발하한", "스파크", "정전기", "접지", "방폭", "환기", "화기작업", "밀폐공간"]
+    },
+    {
+      "machine_id": "M-0104",
+      "machine_type": "PUMP",
+      "display_name": "원심 펌프",
+      "profile_version": "PUM-P1",
+      "manual_id": "pump_safety_manual",
+      "manual_path": "data/SOP_260721/pump_safety_manual.md",
+      "manual_version": "1.4",
+      "operating_characteristics": "회전체와 유체 이송 계통을 가진 설비로 진동·흡입 및 토출압력·정비 경과일을 우선 보고, 저압과 고진동이 결합되면 공동현상 가능성을 검토한다.",
+      "current_ml_sensors": ["Vibration", "Pressure", "Service_Days", "Age"],
+      "context_features": ["Speed"],
+      "recommended_additional_fields": [
+        {"field": "Suction_Pressure", "reason": "흡입 부족과 공동현상 가능성 확인"},
+        {"field": "Discharge_Pressure", "reason": "현재 단일 Pressure를 흡입·토출로 분리"},
+        {"field": "Flow_Rate", "reason": "최소유량 미만 운전 여부 확인"},
+        {"field": "Bearing_Temp", "reason": "베어링 이상 발열 확인"},
+        {"field": "Seal_Leak", "reason": "기계적 밀봉부 누설 확인"},
+        {"field": "Cavitation_Flag", "reason": "저압·고진동·이상음의 복합 상태 표현"}
+      ],
+      "primary_hazards": ["공동현상", "베어링·임펠러 손상", "기계적 밀봉 누설", "회전체 접촉", "잔압·잔류 유체 노출"],
+      "risk_patterns": [
+        "낮은 Pressure와 높은 Vibration의 결합",
+        "Service_Days 증가와 Vibration 상승",
+        "토출 압력 저하와 이상음·맥동 동반"
+      ],
+      "demo_emergency_rules": [
+        {"condition": "Vibration >= 5.5", "reason": "펌프 비상 진동 조건"},
+        {"condition": "Pressure <= 10 AND Vibration >= 4.5", "reason": "저압·고진동 복합 비상 조건"}
+      ],
+      "legal_applicability": [
+        {"ref": "산업안전보건기준에 관한 규칙 제92조", "topic": "정비 등의 작업 시 운전정지·잠금·표지", "applies_when": "펌프 정비·청소·검사·수리·교체·조정 작업을 하는 경우"},
+        {"ref": "산업안전보건기준에 관한 규칙 제93조", "topic": "방호장치 해체 금지 및 복구", "applies_when": "커플링 등 회전체 방호덮개를 해체하거나 정비 후 재가동하는 경우"}
+      ],
+      "kosha_refs": ["B-M-25-2026", "C-C-49-2026", "C-C-52-2026", "O-2-2023", "D-64-2018", "M-121-2012", "M-146-2012"],
+      "rag_tags": ["펌프", "진동", "저압", "공동현상", "최소유량", "임펠러", "기계적밀봉", "누설", "정비주기", "잠금표지"]
+    }
+  ]
+}
