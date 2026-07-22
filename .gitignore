@@ -29,7 +29,6 @@ htmlcov/
 data/*.parquet
 
 # 학습 산출물: industrial_fire_custom_accident_ml.ipynb로 재생성
-models/*.joblib
 models/*.pkl
 models/*.pickle
 models/*_metadata.json
