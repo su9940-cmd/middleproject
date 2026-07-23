@@ -52,7 +52,7 @@ def recovery_node(state: SafetyState) -> dict[str, Any]:
         }
 
     return {
-        "alert_status": next_status,
+        "alert_status": next_status.value,
         "consecutive_normal_count": next_count,
         "error_code": None,
         "error_message": None,

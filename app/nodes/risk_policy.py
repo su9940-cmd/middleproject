@@ -99,7 +99,7 @@ def risk_policy(state: SafetyState) -> dict[str, Any]:
         }
 
     return {
-        "risk_level": risk_level,
+        "risk_level": risk_level.value,
         "emergency_reasons": emergency_reasons,
         "policy_version": POLICY_VERSION,
         "error_code": None,

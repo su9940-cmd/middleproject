@@ -3,15 +3,6 @@
 from datetime import datetime
 from typing import Any, TypedDict
 
-from app.core.enums import (
-    AlertStatus,
-    MachineType,
-    MeasurementMode,
-    NotificationStatus,
-    RiskLevel,
-)
-
-
 class SafetyState(TypedDict, total=False):
     """Serializable state shared by all agents and graph nodes."""
 
@@ -21,11 +12,11 @@ class SafetyState(TypedDict, total=False):
     alert_id: str | None
     reading_id: str
     machine_id: str
-    machine_type: MachineType
+    machine_type: str
 
     # Current measurement
     measured_at: datetime
-    measurement_mode: MeasurementMode
+    measurement_mode: str
     sensor_reading: dict[str, Any]
 
     # ML prediction
@@ -34,12 +25,12 @@ class SafetyState(TypedDict, total=False):
     prediction_thresholds: dict[str, float]
 
     # Risk policy
-    risk_level: RiskLevel
+    risk_level: str
     emergency_reasons: list[str]
     policy_version: str
 
     # Alert lifecycle
-    alert_status: AlertStatus
+    alert_status: str
     repeat_count: int
     consecutive_normal_count: int
 
@@ -57,7 +48,7 @@ class SafetyState(TypedDict, total=False):
     final_checklist: dict[str, Any]
 
     # Immediate alert
-    notification_status: NotificationStatus
+    notification_status: str
     immediate_alert_sent_at: datetime | None
     notification_error: str | None
 
