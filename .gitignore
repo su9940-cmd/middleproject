@@ -32,6 +32,7 @@ data/*.parquet
 models/*.pkl
 models/*.pickle
 models/*_metadata.json
+!models/industrial_fire_accident_metadata.json
 
 # 로그, 임시 파일과 로컬 데이터베이스
 *.log
@@ -47,6 +48,8 @@ models/*_metadata.json
 .DS_Store
 Thumbs.db
 desktop.ini
+
+docs/
 
 # 프로젝트에 사용하지 않는 개인 작업 파일
 dd.ipynb
