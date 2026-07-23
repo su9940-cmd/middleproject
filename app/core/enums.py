@@ -19,6 +19,27 @@ class MeasurementMode(StrEnum):
     IMMEDIATE_RECHECK = "IMMEDIATE_RECHECK"
 
 
+class Shift(StrEnum):
+    """Shift categories used by the trained model."""
+
+    DAY = "Day"
+    NIGHT = "Night"
+
+
+class ExperienceLevel(StrEnum):
+    """Worker experience categories used by the trained model."""
+
+    JUNIOR = "Junior"
+    SENIOR = "Senior"
+
+
+class TrainingStatus(StrEnum):
+    """Worker safety-training categories used by the trained model."""
+
+    YES = "Yes"
+    NO = "No"
+
+
 class RiskLevel(StrEnum):
     """Risk level produced by the risk policy."""
 

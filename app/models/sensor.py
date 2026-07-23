@@ -3,9 +3,23 @@
 from datetime import datetime
 from math import isfinite
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.core.enums import MachineType, MeasurementMode
+from app.core.enums import (
+    ExperienceLevel,
+    MachineType,
+    MeasurementMode,
+    Shift,
+    TrainingStatus,
+)
+
+
+MACHINE_ID_TYPE_MAP = {
+    "M-0101": MachineType.REACTOR,
+    "M-0102": MachineType.COMPRESSOR,
+    "M-0103": MachineType.STORAGE_TANK,
+    "M-0104": MachineType.PUMP,
+}
 
 
 class SensorReading(BaseModel):
@@ -13,8 +27,8 @@ class SensorReading(BaseModel):
 
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
-    reading_id: str
-    machine_id: str
+    reading_id: str = Field(min_length=1)
+    machine_id: str = Field(min_length=1)
     machine_type: MachineType
     measured_at: datetime
     measurement_mode: MeasurementMode
@@ -29,9 +43,27 @@ class SensorReading(BaseModel):
     gas: float
     sparks: int
 
-    shift: str
-    experience: str
-    training: str
+    shift: Shift
+    experience: ExperienceLevel
+    training: TrainingStatus
+
+    @field_validator("shift", "experience", "training", mode="before")
+    @classmethod
+    def normalize_category(cls, value: object) -> object:
+        """Accept category strings case-insensitively and store model values."""
+
+        if not isinstance(value, str):
+            return value
+        normalized = value.strip().casefold()
+        category_values = {
+            "day": Shift.DAY,
+            "night": Shift.NIGHT,
+            "junior": ExperienceLevel.JUNIOR,
+            "senior": ExperienceLevel.SENIOR,
+            "yes": TrainingStatus.YES,
+            "no": TrainingStatus.NO,
+        }
+        return category_values.get(normalized, value)
 
     @field_validator(
         "temperature",
@@ -57,3 +89,16 @@ class SensorReading(BaseModel):
         if value < 0:
             raise ValueError("integer sensor/context values must be non-negative")
         return value
+
+    @model_validator(mode="after")
+    def validate_machine_identity(self) -> "SensorReading":
+        """Ensure the fixed demo machine ID and machine type agree."""
+
+        expected_type = MACHINE_ID_TYPE_MAP.get(self.machine_id)
+        if expected_type is None:
+            raise ValueError(f"unsupported machine_id: {self.machine_id}")
+        if self.machine_type != expected_type:
+            raise ValueError(
+                f"machine_id {self.machine_id} requires machine_type {expected_type.value}"
+            )
+        return self

@@ -16,6 +16,7 @@ class SafetyState(TypedDict, total=False):
     """Serializable state shared by all agents and graph nodes."""
 
     # Execution and incident identity
+    schema_version: str
     thread_id: str
     alert_id: str | None
     reading_id: str
