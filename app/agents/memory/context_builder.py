@@ -1,9 +1,3 @@
-# app/agents/memory/context_builder.py — 순수 함수 유틸
-
-# count_unresolved, extract_previous_risk_level, is_risk_escalated, partition_action_ids, collect_previous_titles, compute_repeat_count 6개 함수
-# 리포지토리·State·시간에 의존하지 않는 순수 함수만 모아둠
-# 왜 분리했나: 로직 오류를 리포지토리 목킹 없이 단독으로 잡을 수 있음. 나중에 조치 판정 규칙이 바뀌어도 여기만 수정하면 됨
-
 """
 Memory Agent의 계산 로직 유틸.
 
