@@ -1,0 +1,811 @@
+<title>Worker Interrupt → Manager Review 인터페이스 데모</title>
+<style>
+  :root {
+    color-scheme: light dark;
+
+    --bg: #eef1f3;
+    --harness-ink: #1c2b33;
+    --harness-muted: #55707c;
+    --accent: #2f5064;
+    --accent-soft: #e4edf2;
+    --accent-line: #c9d8de;
+
+    --paper: #ffffff;
+    --paper-sunken: #f7f7f5;
+    --paper-chip: #f1efe8;
+    --rule: #e5e3dc;
+    --ink: #1a1a1a;
+    --muted: #6b6960;
+    --faint: #9a9890;
+
+    --caution-bg: #faeeda; --caution-fg: #633806;
+    --warning-bg: #f5c4b3; --warning-fg: #712b13;
+    --emergency-bg: #fcebeb; --emergency-fg: #791f1f;
+    --success-bg: #eaf3de; --success-fg: #27500a;
+
+    --console-bg: #f5f3ee;
+    --console-ink: #2c2a24;
+    --console-rule: #ded9cc;
+    --console-key: #6a5a2f;
+    --console-str: #2f5a3d;
+    --console-req: #35586e;
+    --console-res: #27500a;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #11181c;
+      --harness-ink: #dfe8ec;
+      --harness-muted: #86a0aa;
+      --accent: #7fb2cf;
+      --accent-soft: #1c3540;
+      --accent-line: #2c4550;
+
+      --paper: #211f1b;
+      --paper-sunken: #2a2822;
+      --paper-chip: #332f27;
+      --rule: #423d33;
+      --ink: #f2f0ea;
+      --muted: #b8b4a8;
+      --faint: #8f8b7f;
+
+      --caution-bg: #4a3a12; --caution-fg: #f5cf7a;
+      --warning-bg: #5a2c1a; --warning-fg: #f3a988;
+      --emergency-bg: #4a1a1a; --emergency-fg: #f79a9a;
+      --success-bg: #1f3a12; --success-fg: #a8d97a;
+
+      --console-bg: #171f23;
+      --console-ink: #d8e2e6;
+      --console-rule: #2b3a41;
+      --console-key: #e0c383;
+      --console-str: #9fd6ac;
+      --console-req: #8fc2e0;
+      --console-res: #a8d97a;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #11181c; --harness-ink: #dfe8ec; --harness-muted: #86a0aa;
+    --accent: #7fb2cf; --accent-soft: #1c3540; --accent-line: #2c4550;
+    --paper: #211f1b; --paper-sunken: #2a2822; --paper-chip: #332f27;
+    --rule: #423d33; --ink: #f2f0ea; --muted: #b8b4a8; --faint: #8f8b7f;
+    --caution-bg: #4a3a12; --caution-fg: #f5cf7a;
+    --warning-bg: #5a2c1a; --warning-fg: #f3a988;
+    --emergency-bg: #4a1a1a; --emergency-fg: #f79a9a;
+    --success-bg: #1f3a12; --success-fg: #a8d97a;
+    --console-bg: #171f23; --console-ink: #d8e2e6; --console-rule: #2b3a41;
+    --console-key: #e0c383; --console-str: #9fd6ac; --console-req: #8fc2e0; --console-res: #a8d97a;
+  }
+  :root[data-theme="light"] {
+    --bg: #eef1f3; --harness-ink: #1c2b33; --harness-muted: #55707c;
+    --accent: #2f5064; --accent-soft: #e4edf2; --accent-line: #c9d8de;
+    --paper: #ffffff; --paper-sunken: #f7f7f5; --paper-chip: #f1efe8;
+    --rule: #e5e3dc; --ink: #1a1a1a; --muted: #6b6960; --faint: #9a9890;
+    --caution-bg: #faeeda; --caution-fg: #633806;
+    --warning-bg: #f5c4b3; --warning-fg: #712b13;
+    --emergency-bg: #fcebeb; --emergency-fg: #791f1f;
+    --success-bg: #eaf3de; --success-fg: #27500a;
+    --console-bg: #f5f3ee; --console-ink: #2c2a24; --console-rule: #ded9cc;
+    --console-key: #6a5a2f; --console-str: #2f5a3d; --console-req: #35586e; --console-res: #27500a;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--harness-ink);
+    font-family: -apple-system, "Segoe UI", "Pretendard", system-ui, sans-serif;
+    padding: 32px 20px 60px;
+  }
+
+  .wrap { max-width: 1120px; margin: 0 auto; }
+
+  header.page {
+    margin-bottom: 28px;
+  }
+  .eyebrow {
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 8px;
+  }
+  h1 {
+    font-size: clamp(22px, 3vw, 30px);
+    font-weight: 650;
+    margin: 0 0 8px;
+    letter-spacing: -0.01em;
+    text-wrap: balance;
+    color: var(--harness-ink);
+  }
+  .dek {
+    font-size: 14.5px;
+    color: var(--harness-muted);
+    max-width: 62ch;
+    line-height: 1.55;
+    margin: 0;
+  }
+
+  .steps {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 20px;
+    font-size: 13px;
+  }
+  .step {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px 6px 6px;
+    border-radius: 999px;
+    border: 1px solid var(--accent-line);
+    background: var(--paper);
+    color: var(--harness-muted);
+    transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+  }
+  .step .num {
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    display: grid; place-items: center;
+    font-size: 11px; font-weight: 700;
+    background: var(--paper-chip);
+    color: var(--harness-muted);
+  }
+  .step.active {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .step.active .num { background: var(--accent); color: var(--paper); }
+  .step.done { color: var(--success-fg); }
+  .step.done .num { background: var(--success-bg); color: var(--success-fg); }
+  .steps .arrow { color: var(--faint); font-size: 14px; }
+
+  .layout {
+    display: grid;
+    grid-template-columns: minmax(0, 420px) minmax(0, 1fr);
+    gap: 22px;
+    align-items: start;
+  }
+  @media (max-width: 860px) {
+    .layout { grid-template-columns: 1fr; }
+  }
+
+  .panel-label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--harness-muted);
+    margin: 0 0 10px;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+  .panel-label .file {
+    font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    font-weight: 500;
+    font-size: 11px;
+    letter-spacing: 0;
+    color: var(--faint);
+    text-transform: none;
+  }
+
+  /* ---- Screen "device" card: styling mirrors the real JSX components ---- */
+  .stage-shell {
+    background: var(--paper-sunken);
+    border: 1px solid var(--rule);
+    border-radius: 16px;
+    padding: 16px;
+  }
+  #stage { min-height: 200px; }
+  .card {
+    background: var(--paper);
+    border-radius: 12px;
+    border: 1px solid var(--rule);
+    padding: 20px;
+    color: var(--ink);
+    animation: rise 0.32s ease;
+  }
+  @media (prefers-reduced-motion: reduce) { .card { animation: none; } }
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .card-head {
+    display: flex; justify-content: space-between; align-items: flex-start;
+  }
+  .card-head .title { font-weight: 500; font-size: 16px; margin: 0; color: var(--ink); }
+  .card-head .sub { font-size: 13px; color: var(--muted); margin: 4px 0 0; }
+  .badge {
+    font-size: 12px; font-weight: 500;
+    padding: 4px 10px; border-radius: 8px;
+    white-space: nowrap;
+  }
+  .badge.EMERGENCY { background: var(--emergency-bg); color: var(--emergency-fg); }
+  .badge.WARNING { background: var(--warning-bg); color: var(--warning-fg); }
+  .badge.CAUTION { background: var(--caution-bg); color: var(--caution-fg); }
+  .badge.success { background: var(--success-bg); color: var(--success-fg); }
+  .badge.chip { background: var(--paper-chip); color: var(--muted); font-size: 11.5px; padding: 3px 8px; }
+
+  .meta-row {
+    display: flex; gap: 16px; font-size: 13px; color: var(--muted);
+    margin: 14px 0; padding-bottom: 14px; border-bottom: 1px solid var(--rule);
+    flex-wrap: wrap;
+  }
+  .meta-row b { color: var(--ink); font-variant-numeric: tabular-nums; }
+
+  .notice {
+    background: var(--emergency-bg); color: var(--emergency-fg);
+    border-radius: 8px; padding: 10px 12px; margin-bottom: 16px; font-size: 13px;
+  }
+  .fill { background: var(--paper-sunken); border-radius: 8px; padding: 10px 12px; font-size: 13px; }
+
+  .section-title { font-weight: 500; font-size: 14px; margin: 0 0 8px; color: var(--ink); }
+
+  .items { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+  .item {
+    border: 1px solid var(--rule); border-radius: 8px; padding: 10px; font-size: 13px;
+  }
+  .item .row { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }
+  .item .instruction { margin: 3px 0 0; color: var(--muted); }
+  .item .src-row { display: flex; align-items: center; gap: 4px; margin-top: 4px; }
+  .item .src { margin: 0; color: var(--faint); font-size: 12px; }
+  .item .expand-btn {
+    border: none; background: none; padding: 2px; cursor: pointer; color: var(--faint); font-size: 12px;
+  }
+  .item .law-detail {
+    margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--rule);
+    font-size: 12px; color: var(--muted);
+  }
+  .item .law-detail b { color: var(--ink); }
+  .item .law-detail p { margin: 0 0 6px; }
+  select.status-select {
+    height: 27px; font-size: 11.5px; width: 68px; flex-shrink: 0;
+    border-radius: 6px; border: 1px solid var(--rule); background: var(--paper); color: var(--ink);
+  }
+  .completed-line {
+    display: flex; justify-content: space-between; align-items: center; padding: 8px 0;
+    border-bottom: 1px solid var(--rule); font-size: 13px;
+  }
+  .completed-line:last-child { border-bottom: none; }
+  .completed-line .left { display: flex; align-items: center; gap: 4px; }
+  .done-tag { color: var(--success-fg); display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+
+  label.field-label { font-size: 13px; color: var(--muted); display: block; margin-bottom: 6px; }
+  textarea {
+    width: 100%; box-sizing: border-box; margin-bottom: 14px;
+    font-family: inherit; font-size: 13px; padding: 8px 10px;
+    border-radius: 8px; border: 1px solid var(--rule);
+    background: var(--paper); color: var(--ink); resize: vertical;
+  }
+  button.primary {
+    width: 100%; padding: 11px; font-size: 14px; font-weight: 500; cursor: pointer;
+    border-radius: 8px; border: 1px solid var(--ink); background: var(--ink); color: var(--paper);
+    transition: opacity 0.15s ease;
+  }
+  button.primary:disabled { opacity: 0.4; cursor: not-allowed; }
+  button.primary:focus-visible, button.ghost:focus-visible, select:focus-visible, textarea:focus-visible, .expand-btn:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px;
+  }
+  .ghost-row { display: flex; gap: 8px; margin-top: 10px; }
+  button.ghost {
+    flex: 1; padding: 9px; font-size: 13px; cursor: pointer; border-radius: 8px;
+    border: 1px solid var(--rule); background: var(--paper); color: var(--ink);
+  }
+  button.ghost.selected { border-color: var(--ink); border-width: 1.5px; font-weight: 600; }
+  .mtreq-box { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--rule); }
+  .decided-note { font-size: 12px; color: var(--faint); margin: 8px 0 0; }
+  .done-state { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--rule); text-align: center; }
+  .done-state p { font-size: 13px; color: var(--muted); margin: 10px 0 0; }
+
+  /* ---- API trace console ---- */
+  .console {
+    background: var(--console-bg); border: 1px solid var(--console-rule);
+    border-radius: 16px; padding: 16px 16px 20px; min-height: 200px;
+  }
+  .console-empty {
+    color: var(--harness-muted); font-size: 13px; padding: 20px 4px;
+  }
+  .trace {
+    border: 1px solid var(--console-rule); border-radius: 10px; overflow: hidden; margin-bottom: 14px;
+    background: var(--paper);
+  }
+  .trace:last-child { margin-bottom: 0; }
+  .trace-head {
+    display: flex; align-items: center; gap: 8px;
+    padding: 9px 12px; border-bottom: 1px solid var(--console-rule);
+    font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    font-size: 12.5px; background: var(--paper-chip);
+  }
+  .trace-head .method {
+    font-weight: 700; color: var(--paper); background: var(--accent);
+    padding: 1px 7px; border-radius: 5px; font-size: 11px; letter-spacing: 0.03em;
+  }
+  .trace-head .path { color: var(--console-ink); font-weight: 600; }
+  .trace-body { display: grid; grid-template-columns: 1fr 1fr; gap: 0; }
+  @media (max-width: 560px) { .trace-body { grid-template-columns: 1fr; } }
+  .trace-col { padding: 10px 12px; }
+  .trace-col + .trace-col { border-left: 1px solid var(--console-rule); }
+  @media (max-width: 560px) { .trace-col + .trace-col { border-left: none; border-top: 1px solid var(--console-rule); } }
+  .trace-col .lbl {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  .trace-col.req .lbl { color: var(--console-req); }
+  .trace-col.res .lbl { color: var(--console-res); }
+  pre.json {
+    margin: 0; font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    font-size: 12px; line-height: 1.55; color: var(--console-ink);
+    white-space: pre-wrap; word-break: break-word; overflow-x: auto;
+    font-variant-numeric: tabular-nums;
+  }
+  .jk { color: var(--console-key); }
+  .js { color: var(--console-str); }
+
+  .toolbar { display: flex; justify-content: flex-end; margin-top: 18px; }
+  button.reset {
+    font-size: 12.5px; color: var(--harness-muted); background: none; border: none;
+    cursor: pointer; text-decoration: underline; text-underline-offset: 3px; padding: 4px;
+  }
+  button.reset:hover { color: var(--accent); }
+</style>
+
+<div class="wrap">
+  <header class="page">
+    <p class="eyebrow">back-UI-integration · 인터페이스 데모</p>
+    <h1>Worker Interrupt → Manager Review</h1>
+    <p class="dek">
+      역할 E의 <code>WorkerInterruptScreen_final.jsx</code>·<code>ManagerReviewScreen.jsx</code> 두 화면을
+      실제 데이터로 이어서 조작해 보는 목업입니다. 오른쪽 콘솔은 각 조작이 실제로 호출하는
+      백엔드 엔드포인트의 요청/응답을 그대로 보여줍니다.
+    </p>
+    <div class="steps" id="steps"></div>
+  </header>
+
+  <div class="layout">
+    <div>
+      <p class="panel-label">화면 <span class="file" id="panel-file"></span></p>
+      <div class="stage-shell"><div id="stage"></div></div>
+    </div>
+    <div>
+      <p class="panel-label">API 호출 로그</p>
+      <div class="console" id="console"></div>
+      <div class="toolbar"><button class="reset" id="reset-btn">처음부터 다시 보기</button></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var LAW_DETAILS = {
+    law_art241: {
+      title: "제241조 (화재위험작업 시의 준수사항)",
+      summary: "가연성물질이 있는 장소에서 화재위험작업을 하는 경우 작업 절차 수립, 위험물 현황 파악, 인근 가연성물질 방호조치, 불티 비산방지조치, 인화성 가스 환기, 화재예방 교육을 준수해야 한다."
+    },
+    law_art92: {
+      title: "제92조 (정비 등의 작업 시의 운전정지 등)",
+      summary: "동력으로 작동되는 기계의 정비·청소·급유·검사·수리·교체 작업 시 근로자가 위험해질 우려가 있으면 운전을 정지해야 하며, 기동장치에 잠금장치를 하고 열쇠를 별도 관리하거나 표지판을 설치해야 한다."
+    },
+    law_art93: {
+      title: "제93조 (방호장치의 해체 금지)",
+      summary: "회전체가 노출되는 부위의 덮개 등 방호 장치는 정비 후 원위치에 복구하지 않은 상태로 운전해서는 안 된다."
+    }
+  };
+
+  var alertId = "AL-M0101-20260723T101500";
+  var checklistId = "CL-" + alertId + "-V1";
+  var maintenanceRequestId = "MR-" + alertId;
+  var threadId = "M-0101:" + alertId;
+
+  var incident = {
+    machine_id: "M-0101",
+    machine_type: "REACTOR",
+    measured_at: "2026-07-23 10:15",
+    risk_level: "EMERGENCY",
+    ml_risk_score: 0.91,
+    alert_id: alertId,
+    emergency_reasons: ["REACTOR: temperature 50.0 >= 42"],
+    notification_status: "SENT",
+    immediate_alert_sent_at: "2026-07-23 10:15:04",
+    final_checklist: {
+      checklist_id: checklistId,
+      version: 1,
+      action_phase: "EMERGENCY",
+      requires_manager_report: true,
+      requires_maintenance_request: true,
+      items: [
+        { checklist_item_id: "CI-1", title: "비상대응 절차 즉시 시행 및 위험구역 통제", instruction: "인근 인원을 대피시키고 위험구역 접근을 통제한다.", source_ids: [] },
+        { checklist_item_id: "CI-2", title: "점화원 전면 차단", instruction: "반응기 인근의 모든 점화원(전기설비, 화기)을 즉시 차단한다.", source_ids: ["law_art241"] },
+        { checklist_item_id: "CI-3", title: "냉각수 밸브 개방 및 안전밸브 점검", instruction: "SOP-REACTOR-01 3.2절에 따라 냉각수 밸브를 즉시 개방하고 안전밸브 작동압력을 확인한다.", source_ids: ["law_art92", "law_art93"] }
+      ]
+    },
+    maintenance_request: {
+      title: "가스 감지 센서 및 안전밸브 정밀 점검",
+      priority: "높음",
+      recommendation: "재발 방지를 위해 가스 감지 센서 교정 상태와 안전밸브 작동 압력을 재점검할 것을 권장합니다."
+    }
+  };
+
+  var state = {
+    screen: "worker",
+    itemStatuses: {},
+    expandedWorker: {},
+    expandedManager: {},
+    note: "",
+    submitted: false,
+    workerResponse: null,
+    maintenanceDecision: null,
+    comment: "",
+    approved: false,
+    traces: []
+  };
+  incident.final_checklist.items.forEach(function (it) { state.itemStatuses[it.checklist_item_id] = "PENDING"; });
+
+  var PANEL_FILES = { worker: "WorkerInterruptScreen_final.jsx", manager: "ManagerReviewScreen.jsx" };
+
+  function esc(s) {
+    return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+  function jVal(v) {
+    if (v === null) return '<span class="jk">null</span>';
+    if (typeof v === "boolean" || typeof v === "number") return '<span class="js">' + v + "</span>";
+    return '<span class="js">"' + esc(v) + '"</span>';
+  }
+  function renderJson(obj, indent) {
+    indent = indent || 0;
+    var pad = "  ".repeat(indent);
+    var pad2 = "  ".repeat(indent + 1);
+    if (Array.isArray(obj)) {
+      if (obj.length === 0) return "[]";
+      var arrItems = obj.map(function (v) {
+        return pad2 + (typeof v === "object" && v !== null ? renderJson(v, indent + 1) : jVal(v));
+      });
+      return "[\n" + arrItems.join(",\n") + "\n" + pad + "]";
+    }
+    if (obj !== null && typeof obj === "object") {
+      var keys = Object.keys(obj);
+      if (keys.length === 0) return "{}";
+      var lines = keys.map(function (k) {
+        var v = obj[k];
+        var rendered = (typeof v === "object" && v !== null) ? renderJson(v, indent + 1) : jVal(v);
+        return pad2 + '<span class="jk">"' + k + '"</span>: ' + rendered;
+      });
+      return "{\n" + lines.join(",\n") + "\n" + pad + "}";
+    }
+    return jVal(obj);
+  }
+
+  function nowIso() {
+    return new Date().toISOString().replace(/\.\d+Z$/, "Z");
+  }
+
+  function addTrace(method, path, req, res) {
+    state.traces.push({ method: method, path: path, req: req, res: res });
+  }
+
+  function riskBadgeClass(level) {
+    return level === "EMERGENCY" ? "EMERGENCY" : level === "WARNING" ? "WARNING" : "CAUTION";
+  }
+
+  function lawEntriesFor(sourceIds) {
+    return sourceIds.map(function (id) { return [id, LAW_DETAILS[id]]; }).filter(function (pair) { return pair[1]; });
+  }
+
+  /* ---------------- Worker Interrupt screen ---------------- */
+  function renderWorker() {
+    var c = incident.final_checklist;
+    var items = c.items;
+    var allDone = items.every(function (it) { return state.itemStatuses[it.checklist_item_id] === "COMPLETED"; });
+
+    var itemsHtml = items.map(function (it) {
+      var status = state.itemStatuses[it.checklist_item_id];
+      var isOpen = !!state.expandedWorker[it.checklist_item_id];
+      var lawEntries = lawEntriesFor(it.source_ids);
+      var expandBtn = lawEntries.length
+        ? '<button class="expand-btn" data-action="toggle-worker-law" data-item="' + it.checklist_item_id + '" aria-label="법령 상세보기">' + (isOpen ? "▲" : "▼") + "</button>"
+        : "";
+      var lawHtml = (isOpen && lawEntries.length)
+        ? '<div class="law-detail">' + lawEntries.map(function (p) {
+            return "<p><b>" + esc(p[1].title) + "</b><br>" + esc(p[1].summary) + "</p>";
+          }).join("") + "</div>"
+        : "";
+      return (
+        '<div class="item">' +
+          '<div class="row">' +
+            '<div style="flex:1">' +
+              "<span>" + esc(it.title) + "</span>" +
+              '<p class="instruction">' + esc(it.instruction) + "</p>" +
+              '<div class="src-row"><p class="src">근거: ' + (it.source_ids.length ? esc(it.source_ids.join(", ")) : "-") + "</p>" + expandBtn + "</div>" +
+              lawHtml +
+            "</div>" +
+            '<select class="status-select" data-action="set-status" data-item="' + it.checklist_item_id + '">' +
+              ["PENDING", "COMPLETED", "SKIPPED", "FAILED"].map(function (s) {
+                var label = { PENDING: "대기", COMPLETED: "완료", SKIPPED: "생략", FAILED: "실패" }[s];
+                return '<option value="' + s + '"' + (s === status ? " selected" : "") + ">" + label + "</option>";
+              }).join("") +
+            "</select>" +
+          "</div>" +
+        "</div>"
+      );
+    }).join("");
+
+    var phaseLabel = { INITIAL: "최초", FOLLOW_UP: "후속", EMERGENCY: "긴급" }[c.action_phase] || c.action_phase;
+
+    var chips = "";
+    if (c.requires_manager_report || c.requires_maintenance_request) {
+      chips = '<div style="display:flex;gap:8px;margin-bottom:14px">' +
+        (c.requires_manager_report ? '<span class="badge chip">관리자 보고 필요</span>' : "") +
+        (c.requires_maintenance_request ? '<span class="badge chip">정비 요청 초안 필요</span>' : "") +
+        "</div>";
+    }
+
+    var notice = (incident.notification_status === "SENT" && incident.immediate_alert_sent_at)
+      ? '<div class="notice">즉시 알림이 ' + esc(incident.immediate_alert_sent_at) + '에 비동기로 이미 발송됐습니다 (alert_id ' + esc(incident.alert_id) + ').</div>'
+      : "";
+
+    var html;
+    if (state.submitted) {
+      html =
+        '<div class="card">' +
+          '<div class="card-head"><div><p class="title">' + esc(incident.machine_id) + " · " + esc(incident.machine_type) + '</p></div>' +
+          '<span class="badge ' + riskBadgeClass(incident.risk_level) + '">' + esc(incident.risk_level) + "</span></div>" +
+          '<div class="done-state">' +
+            '<span class="badge success">제출 완료</span>' +
+            '<p>작업자 응답이 저장되고, 설비는 즉시 재측정 대기(WAITING_RECHECK) 상태로 전환됐습니다.</p>' +
+            '<button class="primary" style="margin-top:14px" data-action="go-manager">관리자 검토 화면으로 →</button>' +
+          "</div>" +
+        "</div>";
+    } else {
+      html =
+        '<div class="card">' +
+          '<div class="card-head">' +
+            '<div><p class="title">' + esc(incident.machine_id) + " · " + esc(incident.machine_type) + '</p>' +
+            '<p class="sub">' + esc(incident.measured_at) + "</p></div>" +
+            '<span class="badge ' + riskBadgeClass(incident.risk_level) + '">' + esc(incident.risk_level) + "</span>" +
+          "</div>" +
+          '<div class="meta-row">' +
+            "<span>ML 위험점수 <b>" + incident.ml_risk_score + "</b></span>" +
+            "<span>경보 ID <b>" + esc(incident.alert_id) + "</b></span>" +
+            "<span>구분 <b>" + phaseLabel + "</b></span>" +
+          "</div>" +
+          (incident.emergency_reasons.length ? '<p style="font-size:13px;color:var(--muted);margin:0 0 14px">긴급 규칙 근거: ' + esc(incident.emergency_reasons.join(" · ")) + "</p>" : "") +
+          notice + chips +
+          '<p class="section-title">체크리스트 (v' + c.version + ")</p>" +
+          '<div class="items">' + itemsHtml + "</div>" +
+          '<label class="field-label">작업자 메모 (worker_note)</label>' +
+          '<textarea rows="3" id="worker-note" placeholder="조치 내용, 특이사항을 입력하세요">' + esc(state.note) + "</textarea>" +
+          '<button class="primary" id="worker-submit" ' + (allDone ? "" : "disabled") + ">제출 (worker_interrupt resume)</button>" +
+        "</div>";
+    }
+    return html;
+  }
+
+  /* ---------------- Manager Review screen ---------------- */
+  function renderManager() {
+    var c = incident.final_checklist;
+    var completedItems = c.items.map(function (it) {
+      return { checklist_item_id: it.checklist_item_id, title: it.title, source_ids: it.source_ids };
+    });
+    var needsDecision = !!incident.maintenance_request;
+    var canApprove = needsDecision ? state.maintenanceDecision !== null : true;
+
+    var itemsHtml = completedItems.map(function (it) {
+      var isOpen = !!state.expandedManager[it.checklist_item_id];
+      var lawEntries = lawEntriesFor(it.source_ids);
+      var expandBtn = lawEntries.length
+        ? '<button class="expand-btn" data-action="toggle-manager-law" data-item="' + it.checklist_item_id + '" aria-label="법령 상세보기">' + (isOpen ? "▲" : "▼") + "</button>"
+        : "";
+      var lawHtml = (isOpen && lawEntries.length)
+        ? '<div class="law-detail">' + lawEntries.map(function (p) {
+            return "<p><b>" + esc(p[1].title) + "</b><br>" + esc(p[1].summary) + "</p>";
+          }).join("") + "</div>"
+        : "";
+      return (
+        '<div class="completed-line" style="flex-direction:column;align-items:stretch">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center">' +
+            '<div class="left"><span>' + esc(it.title) + "</span>" + expandBtn + "</div>" +
+            '<span class="done-tag">✓ 완료</span>' +
+          "</div>" + lawHtml +
+        "</div>"
+      );
+    }).join("");
+
+    var submittedAt = state.workerResponse ? state.workerResponse.submitted_at : "";
+
+    var mtReqBlock = "";
+    if (needsDecision && !state.approved) {
+      mtReqBlock =
+        '<div class="mtreq-box">' +
+          '<p class="section-title">정비 요청 초안 <span style="font-size:12px;color:var(--faint)">(관리자 승인 필요 · FR-14)</span></p>' +
+          '<div class="fill">' +
+            '<p style="margin:0;font-weight:500">' + esc(incident.maintenance_request.title) + "</p>" +
+            '<p style="margin:4px 0 0;color:var(--muted)">' + esc(incident.maintenance_request.recommendation) + "</p>" +
+            '<p style="margin:6px 0 0;color:var(--faint);font-size:12px">우선순위: ' + esc(incident.maintenance_request.priority) + "</p>" +
+          "</div>" +
+          '<div class="ghost-row">' +
+            '<button class="ghost' + (state.maintenanceDecision === "approved" ? " selected" : "") + '" data-action="set-decision" data-decision="approved">정비 요청 승인</button>' +
+            '<button class="ghost' + (state.maintenanceDecision === "rejected" ? " selected" : "") + '" data-action="set-decision" data-decision="rejected">반려</button>' +
+          "</div>" +
+          (state.maintenanceDecision ? '<p class="decided-note">정비 요청이 ' + (state.maintenanceDecision === "approved" ? "승인" : "반려") + "됐습니다.</p>" : "") +
+        "</div>";
+    }
+
+    var bottom;
+    if (state.approved) {
+      bottom =
+        '<div class="done-state">' +
+          '<span class="badge success">검토 완료</span>' +
+          '<p>관리자 승인이 기록됐습니다.</p>' +
+        "</div>";
+    } else {
+      bottom =
+        '<div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--rule)">' +
+          '<p class="section-title">관리자 코멘트</p>' +
+          '<textarea rows="2" id="manager-comment" placeholder="검토 의견을 입력하세요">' + esc(state.comment) + "</textarea>" +
+          '<button class="primary" id="manager-approve" ' + (canApprove ? "" : "disabled") + ">보고 확인 · 검토 완료</button>" +
+        "</div>";
+    }
+
+    return (
+      '<div class="card">' +
+        '<div class="card-head">' +
+          '<div><p class="title">' + esc(incident.machine_id) + " · " + esc(incident.machine_type) + '</p>' +
+          '<p class="sub" style="margin-top:4px">' + esc(incident.alert_id) + "</p></div>" +
+          '<span class="badge ' + riskBadgeClass(incident.risk_level) + '">' + esc(incident.risk_level) + "</span>" +
+        "</div>" +
+        '<p style="font-size:13px;color:var(--muted);margin:12px 0 4px">작업자 제출 · ' + esc(submittedAt) + "</p>" +
+        '<div class="fill" style="margin-bottom:14px">' + esc((state.workerResponse && state.workerResponse.note) || "") + "</div>" +
+        '<p class="section-title">완료된 체크리스트</p>' +
+        itemsHtml +
+        mtReqBlock + bottom +
+      "</div>"
+    );
+  }
+
+  function render() {
+    document.getElementById("panel-file").textContent = PANEL_FILES[state.screen];
+    document.getElementById("stage").innerHTML = (state.screen === "manager") ? renderManager() : renderWorker();
+    renderSteps();
+    renderConsole();
+  }
+
+  function renderSteps() {
+    var step1 = state.screen === "worker" ? (state.submitted ? "done" : "active") : "done";
+    var step2 = state.screen === "manager" ? (state.approved ? "done" : "active") : "";
+    document.getElementById("steps").innerHTML =
+      '<div class="step ' + step1 + '"><span class="num">' + (step1 === "done" ? "✓" : "1") + '</span>작업자 응답</div>' +
+      '<span class="arrow">→</span>' +
+      '<div class="step ' + step2 + '"><span class="num">' + (step2 === "done" ? "✓" : "2") + '</span>관리자 검토</div>';
+  }
+
+  function renderConsole() {
+    var el = document.getElementById("console");
+    if (state.traces.length === 0) {
+      el.innerHTML = '<div class="console-empty">아직 호출된 API가 없습니다. 왼쪽에서 체크리스트를 완료하고 제출해 보세요.</div>';
+      return;
+    }
+    el.innerHTML = state.traces.map(function (t) {
+      return (
+        '<div class="trace">' +
+          '<div class="trace-head"><span class="method">' + t.method + '</span><span class="path">' + esc(t.path) + "</span></div>" +
+          '<div class="trace-body">' +
+            '<div class="trace-col req"><div class="lbl">Request</div><pre class="json">' + renderJson(t.req) + "</pre></div>" +
+            '<div class="trace-col res"><div class="lbl">Response</div><pre class="json">' + renderJson(t.res) + "</pre></div>" +
+          "</div>" +
+        "</div>"
+      );
+    }).join("");
+  }
+
+  function resetAll() {
+    state = {
+      screen: "worker",
+      itemStatuses: {},
+      expandedWorker: {},
+      expandedManager: {},
+      note: "",
+      submitted: false,
+      workerResponse: null,
+      maintenanceDecision: null,
+      comment: "",
+      approved: false,
+      traces: []
+    };
+    incident.final_checklist.items.forEach(function (it) { state.itemStatuses[it.checklist_item_id] = "PENDING"; });
+    render();
+  }
+
+  document.getElementById("reset-btn").addEventListener("click", resetAll);
+
+  document.getElementById("stage").addEventListener("click", function (e) {
+    var t = e.target.closest("[data-action]");
+    if (!t) return;
+    var action = t.getAttribute("data-action");
+
+    if (action === "toggle-worker-law") {
+      var id1 = t.getAttribute("data-item");
+      state.expandedWorker[id1] = !state.expandedWorker[id1];
+      render();
+    } else if (action === "toggle-manager-law") {
+      var id2 = t.getAttribute("data-item");
+      state.expandedManager[id2] = !state.expandedManager[id2];
+      render();
+    } else if (action === "set-decision") {
+      state.maintenanceDecision = t.getAttribute("data-decision");
+      render();
+    } else if (action === "go-manager") {
+      state.screen = "manager";
+      render();
+    }
+  });
+
+  document.getElementById("stage").addEventListener("change", function (e) {
+    if (e.target.matches("[data-action='set-status']")) {
+      state.itemStatuses[e.target.getAttribute("data-item")] = e.target.value;
+      render();
+    }
+  });
+
+  document.getElementById("stage").addEventListener("input", function (e) {
+    if (e.target.id === "worker-note") state.note = e.target.value;
+    if (e.target.id === "manager-comment") state.comment = e.target.value;
+  });
+
+  document.getElementById("stage").addEventListener("click", function (e) {
+    if (e.target.id === "worker-submit") {
+      var submittedAt = nowIso();
+      var responseId = "RP-" + alertId + "-" + Date.now();
+      var req = {
+        response_id: responseId,
+        alert_id: alertId,
+        submitted_at: submittedAt,
+        item_statuses: Object.assign({}, state.itemStatuses),
+        note: state.note
+      };
+      var res = {
+        status: "success",
+        checklist_id: checklistId,
+        thread_id: threadId,
+        alert_status: "WAITING_RECHECK",
+        recheck_requested_at: nowIso()
+      };
+      addTrace("POST", "/worker/checklists/" + checklistId + "/respond", req, res);
+      state.workerResponse = { note: state.note, submitted_at: submittedAt };
+      state.submitted = true;
+      render();
+    }
+    if (e.target.id === "manager-approve") {
+      var decision = state.maintenanceDecision === "rejected" ? "REJECTED" : "APPROVED";
+      var req2 = {
+        maintenanceDecision: decision,
+        decidedBy: "안전관리자",
+        comment: state.comment || null
+      };
+      var res2 = {
+        maintenanceRequestId: maintenanceRequestId,
+        alertId: alertId,
+        machineId: incident.machine_id,
+        machineType: incident.machine_type,
+        title: incident.maintenance_request.title,
+        recommendation: incident.maintenance_request.recommendation,
+        priority: incident.maintenance_request.priority,
+        status: decision,
+        decidedBy: "안전관리자",
+        decisionComment: state.comment || null,
+        decidedAt: nowIso(),
+        createdAt: "2026-07-23T10:15:05Z"
+      };
+      addTrace("POST", "/maintenance-requests/" + maintenanceRequestId + "/decision", req2, res2);
+      state.approved = true;
+      render();
+    }
+  });
+
+  render();
+})();
+</script>
