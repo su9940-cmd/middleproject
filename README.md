@@ -109,11 +109,36 @@ uv run pytest tests/ -q
       보류함.
 - tests/unit/test_backend.py, tests/unit/test_{predictive_agent,risk_policy,recovery_node,graph_routes,alert_lifecycle,notification,immediate_recheck,iot_service,worker_interrupt,checklist_repository,maintenance_repository}.py,
   tests/integration/{test_safety_graph,test_sensor_ingest_api,test_worker_interrupt_flow,test_maintenance_routes}.py
-  : 77건 전부 통과. `test_worker_interrupt_flow.py`는 rag_agent/memory_agent/action_draft_node/validator_agent
+  : 92건 전부 통과. `test_worker_interrupt_flow.py`는 rag_agent/memory_agent/action_draft_node/validator_agent
     (아직 없는 A/B 담당 노드)를 `sys.modules`에 최소 가짜 구현으로 꽂아 넣고, 실제 HTTP 요청으로
     EMERGENCY 접수 → 즉시알림 → 체크리스트 저장 → interrupt 정지 → 작업자 응답 → resume →
     WAITING_RECHECK까지 왕복 전체를 검증. `test_maintenance_routes.py`는 응답 JSON이 실제로
     camelCase인지(`maintenanceRequestId`, `alertId` 등)까지 검증.
+
+## 셀프 점검(2026-07-24)에서 발견해 고친 것
+- **`db/schema.sql`이 실제 스키마와 어긋나 있었음** — 원래 ER 다이어그램(Doc 03/F-01~F-10) 기반이라
+  `risk_level`이 한글(정상/주의/경고/긴급), `alert_state`가 3단계(OPEN/MONITORING/RESOLVED)였는데
+  실제 구현은 공통 계약의 영문 값 + 7단계 `AlertStatus`를 씀. `app/models/orm_models.py`와 1:1로
+  맞춰 다시 씀(source of truth는 항상 orm_models.py). 아직 구현 안 된 `app_user`/`machine`/`incident`
+  등 나머지 ER 테이블은 뺐음 — 필요해지면 요구분석서_폐루프_최종설계.docx 참고해 추가.
+- **그 과정에서 발견한 실제 버그**: `SensorReadingORM.shift/experience/training` 컬럼이 SQLAlchemy
+  `Enum` 기본 동작 때문에 멤버 *이름*("DAY")을 저장하고 있었음 — 계약값("Day")과 다름(내부적으로는
+  같은 Enum 타입으로 왕복하니 안 터졌지만, 원본 SQL로 읽으면 잘못된 대소문자가 보임).
+  `values_callable`로 실제 `.value`를 저장하도록 수정.
+- **DB 실패 경로 테스트 추가** — `save_sensor_reading`/`save_alert_state`/`save_worker_response`
+  노드와 `{Alert,Checklist,MaintenanceRequest}Repository`의 모든 쓰기 메서드에 대해, 세션 commit이
+  실패하는 상황을 몹킹해 `DatabaseOperationError`(error_code=`DATABASE_OPERATION_FAILED`)로 올바르게
+  래핑되는지 검증(이전엔 "선택적 필드 없음 → no-op" 경로만 테스트하고 실제 DB 오류 경로는 안 봄).
+  `save_worker_response` 노드는 성공 경로 테스트조차 없었어서 같이 추가.
+- **`SensorValidationError`가 정의만 되고 실제로 한 번도 안 쓰이던 문제** — `POST /sensors/ingest`의
+  `reading: SensorReading` 파라미터는 FastAPI가 핸들러 실행 전에 자체 검증해서, 잘못된 값은
+  `SensorValidationError`가 아니라 FastAPI 기본 `RequestValidationError`(`{"detail": [...]}`)로
+  빠짐. `main.py`에 `RequestValidationError` 핸들러를 추가하되 `/sensors/ingest` 경로에만 좁혀서
+  계약이 정한 `{"error_code": "SENSOR_VALIDATION_FAILED", ...}` 형태로 바꾸고, 다른 라우트는
+  FastAPI 기본 응답을 그대로 유지(`request_validation_exception_handler`로 위임) — 다른 라우트까지
+  전부 SENSOR_VALIDATION_FAILED로 바뀌지 않는지도 테스트로 확인.
+- **`.env.example` 추가** — `DATABASE_URL`/`MODEL_PIPELINE_PATH`/`MODEL_METADATA_PATH`/
+  `RISK_POLICY_VERSION`/`SLACK_ALERT_WEBHOOK_URL` 5개 환경변수를 문서화(전에는 코드를 뒤져야 알 수 있었음).
 
 ## UI 브랜치(역할 E) 병합 시 확인한 것
 - **`pyproject.toml`에 `langgraph-checkpoint<4` 누락**으로 `from langgraph.types import interrupt`가

@@ -48,9 +48,24 @@ class SensorReadingORM(Base):
     gas: Mapped[float] = mapped_column(Float, nullable=False)
     sparks: Mapped[int] = mapped_column(Integer, nullable=False)
 
-    shift: Mapped[Shift] = mapped_column(Enum(Shift), nullable=False)
-    experience: Mapped[ExperienceLevel] = mapped_column(Enum(ExperienceLevel), nullable=False)
-    training: Mapped[TrainingStatus] = mapped_column(Enum(TrainingStatus), nullable=False)
+    # `values_callable` is required here: SQLAlchemy's `Enum` type stores the
+    # Python member *name* by default (e.g. "DAY"), but Shift/ExperienceLevel/
+    # TrainingStatus have name != value ("DAY" vs "Day") - without this the
+    # DB would silently store "DAY"/"JUNIOR"/"YES" instead of the shared
+    # contract's actual "Day"/"Junior"/"Yes" (round-trips fine through the
+    # ORM either way, but a raw SQL read would see the wrong casing).
+    shift: Mapped[Shift] = mapped_column(
+        Enum(Shift, values_callable=lambda enum_cls: [member.value for member in enum_cls]),
+        nullable=False,
+    )
+    experience: Mapped[ExperienceLevel] = mapped_column(
+        Enum(ExperienceLevel, values_callable=lambda enum_cls: [member.value for member in enum_cls]),
+        nullable=False,
+    )
+    training: Mapped[TrainingStatus] = mapped_column(
+        Enum(TrainingStatus, values_callable=lambda enum_cls: [member.value for member in enum_cls]),
+        nullable=False,
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)

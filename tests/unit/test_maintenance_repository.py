@@ -6,6 +6,7 @@ import pytest
 
 from app.core import db
 from app.core.enums import MachineType, MaintenanceRequestStatus
+from app.core.exceptions import DatabaseOperationError
 from app.models.orm_models import Base
 from app.repositories.maintenance_repository import MaintenanceRequestRepository
 
@@ -102,3 +103,47 @@ async def test_apply_decision_sets_status_decided_by_comment_and_decided_at(asyn
     assert updated.decided_by == "manager-1"
     assert updated.decision_comment == "예산 부족으로 반려"
     assert updated.decided_at is not None
+
+
+@pytest.mark.asyncio
+async def test_apply_decision_raises_when_draft_missing(async_session):
+    repo = MaintenanceRequestRepository(async_session)
+
+    with pytest.raises(DatabaseOperationError):
+        await repo.apply_decision(
+            "MR-does-not-exist",
+            decision=MaintenanceRequestStatus.APPROVED,
+            decided_by="manager-1",
+            comment=None,
+        )
+
+
+@pytest.mark.asyncio
+async def test_create_draft_wraps_db_errors(async_session, monkeypatch):
+    async def _raise(*args, **kwargs):
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(async_session, "commit", _raise)
+
+    with pytest.raises(DatabaseOperationError) as exc_info:
+        await MaintenanceRequestRepository(async_session).create_draft(_draft_data())
+    assert exc_info.value.error_code == "DATABASE_OPERATION_FAILED"
+
+
+@pytest.mark.asyncio
+async def test_apply_decision_wraps_db_errors(async_session, monkeypatch):
+    await MaintenanceRequestRepository(async_session).create_draft(_draft_data())
+
+    async def _raise(*args, **kwargs):
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(async_session, "commit", _raise)
+
+    with pytest.raises(DatabaseOperationError) as exc_info:
+        await MaintenanceRequestRepository(async_session).apply_decision(
+            "MR-AL-M0101-001",
+            decision=MaintenanceRequestStatus.APPROVED,
+            decided_by="manager-1",
+            comment=None,
+        )
+    assert exc_info.value.error_code == "DATABASE_OPERATION_FAILED"

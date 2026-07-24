@@ -8,6 +8,7 @@ import pytest
 
 from app.core import db
 from app.core.enums import AlertStatus, MachineType, RiskLevel
+from app.core.exceptions import DatabaseOperationError
 from app.models.orm_models import Base
 from app.repositories.alert_repository import AlertRepository
 from app.repositories.checklist_repository import ChecklistRepository
@@ -126,6 +127,42 @@ async def test_update_worker_response_ignores_unknown_item_ids(async_session):
     )
 
     assert updated.items[0]["status"] == "PENDING"  # unchanged
+
+
+@pytest.mark.asyncio
+async def test_update_worker_response_raises_when_checklist_missing(async_session):
+    repo = ChecklistRepository(async_session)
+
+    with pytest.raises(DatabaseOperationError):
+        await repo.update_worker_response("CL-does-not-exist-V1", {"item_statuses": {}})
+
+
+@pytest.mark.asyncio
+async def test_save_checklist_wraps_db_errors(async_session, monkeypatch):
+    async def _raise(*args, **kwargs):
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(async_session, "commit", _raise)
+
+    with pytest.raises(DatabaseOperationError) as exc_info:
+        await ChecklistRepository(async_session).save_checklist(_checklist_data())
+    assert exc_info.value.error_code == "DATABASE_OPERATION_FAILED"
+
+
+@pytest.mark.asyncio
+async def test_update_worker_response_wraps_db_errors(async_session, monkeypatch):
+    await ChecklistRepository(async_session).save_checklist(_checklist_data())
+
+    async def _raise(*args, **kwargs):
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(async_session, "commit", _raise)
+
+    with pytest.raises(DatabaseOperationError) as exc_info:
+        await ChecklistRepository(async_session).update_worker_response(
+            "CL-AL-M0101-001-V1", {"item_statuses": {"CI-1": "COMPLETED"}}
+        )
+    assert exc_info.value.error_code == "DATABASE_OPERATION_FAILED"
 
 
 @pytest.mark.asyncio

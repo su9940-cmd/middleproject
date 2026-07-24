@@ -135,3 +135,28 @@ def test_immediate_recheck_reading_sets_recheck_reading_id_on_state(monkeypatch,
         config={"configurable": {"thread_id": thread_id}}
     )
     assert snapshot.values.get("recheck_reading_id") == "RD-M0101-recheck1"
+
+
+def test_invalid_sensor_reading_reports_sensor_validation_failed(client):
+    """An invalid body must surface the shared SENSOR_VALIDATION_FAILED contract
+    (section 11), not FastAPI's generic `{"detail": [...]}` validation body."""
+
+    resp = client.post("/sensors/ingest", json=_payload(temperature="not-a-number"))
+
+    assert resp.status_code == 422
+    body = resp.json()
+    assert body["error_code"] == "SENSOR_VALIDATION_FAILED"
+    assert "errors" in body["details"]
+
+
+def test_other_routes_keep_fastapis_default_validation_body(client):
+    """The SENSOR_VALIDATION_FAILED override must not leak into unrelated routes."""
+
+    resp = client.post(
+        "/maintenance-requests/MR-does-not-exist/decision",
+        json={"maintenanceDecision": "PENDING"},  # not a valid decision value
+    )
+
+    assert resp.status_code == 422
+    assert "error_code" not in resp.json()
+    assert "detail" in resp.json()

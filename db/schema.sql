@@ -1,194 +1,143 @@
 -- ============================================================================
 -- 공장 화재위험 멀티에이전트 — PostgreSQL 스키마
 --
--- Source: ER Diagram (Doc 03) / 요구분석 정의서·요구사항 명세서 (Doc 02)
---         F-01~F-10, 페르소나 2명(현장관리자·안전관리자), checklist_type 3-way
--- Target: PostgreSQL (pyproject.toml의 psycopg2-binary / langchain-postgres /
---         pgvector 스택과 동일 DB에 붙는 것을 전제로 작성)
+-- Source of truth: app/models/orm_models.py (SQLAlchemy). 이 파일은 그 DDL을
+-- 손으로 옮겨 적은 참고 문서로, 실제 실행 중인 앱은 SQLAlchemy의
+-- `Base.metadata.create_all()`(app/core/db.py:create_tables)이 스키마를
+-- 만든다 - Alembic 마이그레이션은 아직 없다(MVP 단계, 팀 전체가 아직 안 씀).
+-- 이 파일이 orm_models.py와 어긋나면 orm_models.py가 항상 맞다.
 --
--- 주의: ER 다이어그램 대비 SENSOR_READING에 workers/factory/region/exp 4개
--- 컬럼을 추가했습니다. industrial_fire_custom_accident_ml.ipynb의
--- feature_columns(numeric_features+categorical_features)에는 있는데 ER
--- 다이어그램 작성 시 빠져 있던 걸 이번에 발견해서 반영한 것 — 이 컬럼들이
--- 없으면 predictive_ml_agent(F-01)가 실제 저장된 모델을 애초에 돌릴 수 없습니다.
+-- 이전 버전(ER Diagram Doc 03 / 요구분석 정의서 Doc 02 기반, F-01~F-10)은
+-- risk_level을 한글(정상/주의/경고/긴급)로, alert_state를 3단계
+-- (OPEN/MONITORING/RESOLVED)로 정의했었는데, 실제 구현은 공통 계약
+-- (app/core/enums.py)의 영문 값과 7단계 AlertStatus를 그대로 쓰므로 여기서
+-- 그에 맞춰 다시 썼다. app_user/machine/incident/external_ref/internal_ref/
+-- hitl_decision/checklist_submission 등 원래 ER 다이어그램에 있던 나머지
+-- 테이블은 아직 SQLAlchemy 레이어에 구현되지 않아 이 파일에서도 뺐다 -
+-- 필요해지면 요구분석서_폐루프_최종설계.docx를 참고해 다시 추가할 것.
 -- ============================================================================
 
-CREATE EXTENSION IF NOT EXISTS pgcrypto;  -- gen_random_uuid()
-
 -- ------------------------------------------------------------
--- ENUM 타입
+-- ENUM 타입 (app/core/enums.py와 1:1 대응 — 값의 대소문자까지 정확히 일치)
 -- ------------------------------------------------------------
-CREATE TYPE machine_type_enum       AS ENUM ('REACTOR', 'COMPRESSOR', 'STORAGE_TANK', 'PUMP');
-CREATE TYPE risk_level_enum         AS ENUM ('정상', '주의', '경고', '긴급');
-CREATE TYPE alert_state_enum        AS ENUM ('OPEN', 'MONITORING', 'RESOLVED');
-CREATE TYPE priority_enum           AS ENUM ('low', 'medium', 'high');
-CREATE TYPE checklist_type_enum     AS ENUM ('FIRST_STANDARD', 'FIRST_EMERGENCY', 'ESCALATION');
-CREATE TYPE submission_outcome_enum AS ENUM ('TRUE_POSITIVE', 'FALSE_POSITIVE', 'UNRESOLVED');
-CREATE TYPE maintenance_status_enum AS ENUM ('SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED');
-CREATE TYPE user_role_enum          AS ENUM ('현장관리자', '안전관리자');
-CREATE TYPE shift_enum              AS ENUM ('Day', 'Night');
-CREATE TYPE training_enum           AS ENUM ('Yes', 'No');
-CREATE TYPE exp_enum                AS ENUM ('Junior', 'Senior');
-
--- ------------------------------------------------------------
--- APP_USER  ("user"는 예약어라 app_user로 명명)
--- 역할 2종(현장관리자·안전관리자) — 정비담당자/ML운영자는 범위 밖,
--- 필요해지면 user_role_enum에 값만 추가하면 됨 (스키마 변경 불필요).
--- ------------------------------------------------------------
-CREATE TABLE app_user (
-    user_id    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    name       VARCHAR(100) NOT NULL,
-    role       user_role_enum NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+CREATE TYPE machine_type_enum             AS ENUM ('REACTOR', 'COMPRESSOR', 'STORAGE_TANK', 'PUMP');
+CREATE TYPE measurement_mode_enum         AS ENUM ('PERIODIC', 'IMMEDIATE_RECHECK');
+CREATE TYPE shift_enum                    AS ENUM ('Day', 'Night');
+CREATE TYPE experience_level_enum         AS ENUM ('Junior', 'Senior');
+CREATE TYPE training_status_enum          AS ENUM ('Yes', 'No');
+CREATE TYPE risk_level_enum               AS ENUM ('NORMAL', 'CAUTION', 'WARNING', 'EMERGENCY');
+CREATE TYPE alert_status_enum             AS ENUM (
+    'NONE', 'OPEN', 'IN_PROGRESS', 'WAITING_RECHECK', 'MONITORING', 'RESOLVED', 'ESCALATED'
 );
+CREATE TYPE notification_status_enum      AS ENUM ('NOT_REQUIRED', 'PENDING', 'SENT', 'FAILED');
+CREATE TYPE maintenance_request_status_enum AS ENUM ('PENDING', 'APPROVED', 'REJECTED', 'DEFERRED');
 
 -- ------------------------------------------------------------
--- MACHINE  (machine_profiles.json과 동일한 자연키 사용)
+-- SENSOR_READINGS  (app.models.orm_models.SensorReadingORM)
+-- 전량 저장 정책 — 정상 포함, POST /sensors/ingest가 받는 그대로 저장.
 -- ------------------------------------------------------------
-CREATE TABLE machine (
-    machine_id      VARCHAR(20) PRIMARY KEY,       -- 예: 'M-0101'
-    machine_type    machine_type_enum NOT NULL,
-    display_name    VARCHAR(100) NOT NULL,
-    manual_id       VARCHAR(50) NOT NULL,           -- data/SOP_260721/*.md 참조, DB FK 아님
-    profile_version VARCHAR(20) NOT NULL,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+CREATE TABLE sensor_readings (
+    reading_id        VARCHAR(64) PRIMARY KEY,
+    machine_id        VARCHAR(32) NOT NULL,
+    machine_type      machine_type_enum NOT NULL,
+
+    measured_at       TIMESTAMPTZ NOT NULL,
+    measurement_mode  measurement_mode_enum NOT NULL,
+
+    temperature       REAL NOT NULL,
+    pressure          REAL NOT NULL,
+    humidity          REAL NOT NULL,
+    vibration         REAL NOT NULL,
+    speed             REAL NOT NULL,
+    age               INT NOT NULL,
+    service_days      INT NOT NULL,
+    gas               REAL NOT NULL,
+    sparks            INT NOT NULL,
+
+    shift             shift_enum NOT NULL,
+    experience        experience_level_enum NOT NULL,
+    training          training_status_enum NOT NULL,
+
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+CREATE INDEX idx_sensor_readings_machine ON sensor_readings (machine_id);
 
 -- ------------------------------------------------------------
--- SENSOR_READING  (전량 저장 정책 — 정상 포함, F-01 입력 그대로)
+-- ALERTS  (app.models.orm_models.AlertORM)
+-- 설비별 경보 생애주기. alert_id를 기본키로 upsert(없으면 생성, 있으면 갱신).
 -- ------------------------------------------------------------
-CREATE TABLE sensor_reading (
-    reading_id    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    machine_id    VARCHAR(20) NOT NULL REFERENCES machine(machine_id) ON DELETE RESTRICT,
-    ts            TIMESTAMPTZ NOT NULL,
-    workers       INT NOT NULL,
-    factory       VARCHAR(50) NOT NULL,
-    region        VARCHAR(50) NOT NULL,
-    shift         shift_enum NOT NULL,
-    exp           exp_enum NOT NULL,
-    training      training_enum NOT NULL,
-    temp          REAL NOT NULL,
-    pressure      REAL NOT NULL,
-    humidity      REAL NOT NULL,
-    vibration     REAL NOT NULL,
-    speed         REAL NOT NULL,
-    age           INT NOT NULL,
-    service_days  INT NOT NULL,
-    gas           REAL NOT NULL,
-    sparks        INT NOT NULL,
-    ml_risk_score REAL,               -- F-01 산출, 배치 채점 전에는 NULL
-    risk_level    risk_level_enum,    -- ML 임계값 + 긴급 규칙 적용 후 산출
-    created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+CREATE TABLE alerts (
+    alert_id                      VARCHAR(64) PRIMARY KEY,
+    thread_id                     VARCHAR(64) NOT NULL,
+    machine_id                    VARCHAR(32) NOT NULL,
+    machine_type                  machine_type_enum NOT NULL,
+    reading_id                    VARCHAR(64) NOT NULL,
+
+    risk_level                    risk_level_enum NOT NULL,
+    alert_status                  alert_status_enum NOT NULL DEFAULT 'OPEN',
+
+    repeat_count                  INT NOT NULL DEFAULT 0,
+    consecutive_normal_count      INT NOT NULL DEFAULT 0,
+
+    emergency_reasons             JSONB NOT NULL DEFAULT '[]',
+    notification_status           notification_status_enum NOT NULL DEFAULT 'NOT_REQUIRED',
+
+    requires_maintenance_request  BOOLEAN NOT NULL DEFAULT false,
+    maintenance_request_id        VARCHAR(64),
+
+    created_at                    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at                    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX idx_sensor_reading_machine_ts ON sensor_reading (machine_id, ts DESC);
-COMMENT ON TABLE sensor_reading IS
-    '15분 주기 전량 저장(정상 포함). 기준선 비교·해결 증명·추세 감지·모델 재학습 라벨 확보 목적.';
+CREATE INDEX idx_alerts_machine ON alerts (machine_id);
+COMMENT ON TABLE alerts IS
+    'ESCALATED는 관리자 조치 없이는 자동으로 안 내려감(app.nodes.alert_lifecycle 참고) - '
+    'DB 제약으로는 상태 전이 순서를 표현하지 않고 애플리케이션 계층에서 강제한다.';
 
 -- ------------------------------------------------------------
--- ALERT  (F-07/F-09, 설비별 생애주기 OPEN→MONITORING→RESOLVED)
+-- CHECKLISTS  (app.models.orm_models.ChecklistORM)
+-- Validator Agent(role B)가 생성한 체크리스트 + 작업자 응답.
 -- ------------------------------------------------------------
-CREATE TABLE alert (
-    alert_id     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    machine_id   VARCHAR(20) NOT NULL REFERENCES machine(machine_id) ON DELETE RESTRICT,
-    state        alert_state_enum NOT NULL DEFAULT 'OPEN',
-    risk_level   risk_level_enum NOT NULL,
-    repeat_count INT NOT NULL DEFAULT 0,
-    opened_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-    resolved_at  TIMESTAMPTZ,
-    CONSTRAINT chk_alert_resolved_after_open CHECK (resolved_at IS NULL OR resolved_at >= opened_at)
+CREATE TABLE checklists (
+    checklist_id                  VARCHAR(64) PRIMARY KEY,
+    alert_id                      VARCHAR(64) NOT NULL,
+    version                       INT NOT NULL DEFAULT 1,
+
+    risk_level                    VARCHAR(32) NOT NULL,
+    action_phase                  VARCHAR(32) NOT NULL,
+
+    items                         JSONB NOT NULL,
+    worker_note                   TEXT,
+
+    requires_manager_report       BOOLEAN NOT NULL DEFAULT false,
+    requires_maintenance_request  BOOLEAN NOT NULL DEFAULT false,
+
+    completed_at                  TIMESTAMPTZ,
+    created_at                    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX idx_alert_open ON alert (machine_id) WHERE state <> 'RESOLVED';
-COMMENT ON TABLE alert IS
-    'FC-15: 긴급은 즉시재측정 정상 확인만으로 RESOLVED 자동전환 금지, MONITORING까지만 — 애플리케이션 계층에서 강제 (DB 제약으로는 상태전이 순서를 표현하지 않음).';
+CREATE INDEX idx_checklists_alert ON checklists (alert_id);
 
 -- ------------------------------------------------------------
--- INCIDENT  (F-06, 매 주기 스냅샷 — Alert 생애주기 동안 여러 개 쌓임)
+-- MAINTENANCE_REQUESTS  (app.models.orm_models.MaintenanceRequestORM)
+-- FR-14, 코딩 프롬프트 12장에는 없던 신규 기능(2026-07-24 팀 결정으로 role C
+-- 담당). alerts와 별도 테이블 — 승인 생애주기가 경보 생애주기와 독립적이다.
+-- maintenance_request_id = 'MR-' || alert_id (타임스탬프 없음, idempotent).
 -- ------------------------------------------------------------
-CREATE TABLE incident (
-    incident_id   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    alert_id      UUID NOT NULL REFERENCES alert(alert_id) ON DELETE CASCADE,
-    anomaly_score REAL NOT NULL,
-    priority      priority_enum NOT NULL,
-    summary_3line TEXT NOT NULL,
-    created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-CREATE INDEX idx_incident_alert ON incident (alert_id, created_at DESC);
+CREATE TABLE maintenance_requests (
+    maintenance_request_id  VARCHAR(64) PRIMARY KEY,
+    alert_id                 VARCHAR(64) NOT NULL,
+    machine_id                VARCHAR(32) NOT NULL,
+    machine_type               machine_type_enum NOT NULL,
 
--- ------------------------------------------------------------
--- EXTERNAL_REF / INTERNAL_REF  (F-02 산안법 / F-03 사내매뉴얼)
--- ------------------------------------------------------------
-CREATE TABLE external_ref (
-    ref_id      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    incident_id UUID NOT NULL REFERENCES incident(incident_id) ON DELETE CASCADE,
-    clause      VARCHAR(200) NOT NULL,   -- 예: '안전보건기준에 관한 규칙 제273조'
-    url         TEXT NOT NULL
-);
+    title                      VARCHAR(200) NOT NULL,
+    recommendation             TEXT NOT NULL,
+    priority                   VARCHAR(20) NOT NULL,
 
-CREATE TABLE internal_ref (
-    ref_id      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    incident_id UUID NOT NULL REFERENCES incident(incident_id) ON DELETE CASCADE,
-    manual_id   VARCHAR(50) NOT NULL,
-    url         TEXT NOT NULL
-);
+    status                     maintenance_request_status_enum NOT NULL DEFAULT 'PENDING',
+    decided_by                 VARCHAR(100),
+    decision_comment           TEXT,
+    decided_at                 TIMESTAMPTZ,
 
--- ------------------------------------------------------------
--- CHECKLIST / CHECKLIST_ITEM / CHECKLIST_SUBMISSION  (F-08)
--- checklist_type 3-way: FIRST_STANDARD / FIRST_EMERGENCY / ESCALATION
--- (최초-긴급을 최초-일반과 분리 유지 — 설계 검토 결과)
--- ------------------------------------------------------------
-CREATE TABLE checklist (
-    checklist_id   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    incident_id    UUID NOT NULL REFERENCES incident(incident_id) ON DELETE CASCADE,
-    checklist_type checklist_type_enum NOT NULL,
-    generated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+    created_at                 TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-
-CREATE TABLE checklist_item (
-    item_id      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    checklist_id UUID NOT NULL REFERENCES checklist(checklist_id) ON DELETE CASCADE,
-    seq          SMALLINT NOT NULL,
-    description  TEXT NOT NULL,
-    is_completed BOOLEAN NOT NULL DEFAULT false,
-    UNIQUE (checklist_id, seq)
-);
-COMMENT ON COLUMN checklist_item.is_completed IS
-    'ESCALATION 체크리스트 생성 시 "이전 수행 완료 항목 제외" 로직이 여기를 조회함.';
-
-CREATE TABLE checklist_submission (
-    submission_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    checklist_id  UUID NOT NULL REFERENCES checklist(checklist_id) ON DELETE CASCADE,
-    user_id       UUID NOT NULL REFERENCES app_user(user_id) ON DELETE RESTRICT,
-    outcome       submission_outcome_enum,  -- 확장 후보 필드, 지금은 nullable/미사용
-    notes         TEXT,
-    evidence_url  TEXT,
-    submitted_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE (checklist_id)   -- 1 checklist : 0..1 submission
-);
-
--- ------------------------------------------------------------
--- HITL_DECISION  (F-05, 법령-매뉴얼 모순 시에만 생성)
--- ------------------------------------------------------------
-CREATE TABLE hitl_decision (
-    decision_id    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    incident_id    UUID NOT NULL REFERENCES incident(incident_id) ON DELETE CASCADE,
-    reason         TEXT NOT NULL,
-    human_decision TEXT,
-    decided_by     UUID REFERENCES app_user(user_id) ON DELETE SET NULL,
-    decided_at     TIMESTAMPTZ,
-    UNIQUE (incident_id)   -- 1 incident : 0..1 HITL decision
-);
-
--- ------------------------------------------------------------
--- MAINTENANCE_REQUEST  (F-04, 누적 경보 자동 트리거 또는 수동 요청)
--- ------------------------------------------------------------
-CREATE TABLE maintenance_request (
-    request_id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    machine_id             VARCHAR(20) NOT NULL REFERENCES machine(machine_id) ON DELETE RESTRICT,
-    triggered_by_alert_id  UUID REFERENCES alert(alert_id) ON DELETE SET NULL,  -- nullable: 수동 요청 허용
-    status                 maintenance_status_enum NOT NULL DEFAULT 'SCHEDULED',
-    scheduled_at           TIMESTAMPTZ,
-    completed_at           TIMESTAMPTZ,
-    CONSTRAINT chk_maintenance_completed_after_scheduled
-        CHECK (completed_at IS NULL OR scheduled_at IS NULL OR completed_at >= scheduled_at)
-);
-CREATE INDEX idx_maintenance_machine ON maintenance_request (machine_id);
+CREATE INDEX idx_maintenance_requests_alert ON maintenance_requests (alert_id);
+CREATE INDEX idx_maintenance_requests_status ON maintenance_requests (status);

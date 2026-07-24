@@ -3,6 +3,8 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from app.api import alert_routes, maintenance_routes, sensor_routes, worker_routes
@@ -59,3 +61,30 @@ async def handle_application_error(request: Request, exc: ApplicationError) -> J
         status_code=status_code,
         content={"error_code": exc.error_code, "message": str(exc), "details": exc.details},
     )
+
+
+@app.exception_handler(RequestValidationError)
+async def handle_sensor_ingest_validation_error(
+    request: Request, exc: RequestValidationError
+) -> JSONResponse:
+    """Report an invalid `POST /sensors/ingest` body as SENSOR_VALIDATION_FAILED.
+
+    `reading: SensorReading` on that route is validated by FastAPI itself
+    before the handler ever runs, so `SensorValidationError` is never raised
+    there directly - without this, an invalid reading gets FastAPI's generic
+    `{"detail": [...]}` body instead of the shared error-code contract
+    (section 11). Every other route keeps FastAPI's default validation
+    response - this only narrows in on the one endpoint the contract cares
+    about.
+    """
+
+    if request.url.path == "/sensors/ingest":
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error_code": SensorValidationError.error_code,
+                "message": "sensor reading validation failed",
+                "details": {"errors": exc.errors()},
+            },
+        )
+    return await request_validation_exception_handler(request, exc)
