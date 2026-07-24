@@ -96,17 +96,36 @@ async def test_get_latest_by_alert_picks_the_highest_version(async_session):
 
 @pytest.mark.asyncio
 async def test_update_worker_response_sets_items_note_and_completed_at(async_session):
+    """worker_response matches what WorkerInterruptScreen.handleSubmit (role E) sends:
+    `item_statuses` (a status per checklist_item_id) + `note`, not `items`/`worker_note`."""
+
     repo = ChecklistRepository(async_session)
     await repo.save_checklist(_checklist_data())
 
     updated = await repo.update_worker_response(
         "CL-AL-M0101-001-V1",
-        {"items": [{"checklist_item_id": "CI-1", "status": "COMPLETED"}], "worker_note": "완료"},
+        {"item_statuses": {"CI-1": "COMPLETED"}, "note": "완료"},
     )
 
     assert updated.worker_note == "완료"
     assert updated.completed_at is not None
-    assert updated.items == [{"checklist_item_id": "CI-1", "status": "COMPLETED"}]
+    # Only `status` changes - title/instruction/source_ids/etc. must survive.
+    assert updated.items[0]["status"] == "COMPLETED"
+    assert updated.items[0]["title"] == "냉각수 밸브 개방"
+    assert updated.items[0]["source_ids"] == ["SOP-1"]
+
+
+@pytest.mark.asyncio
+async def test_update_worker_response_ignores_unknown_item_ids(async_session):
+    repo = ChecklistRepository(async_session)
+    await repo.save_checklist(_checklist_data())
+
+    updated = await repo.update_worker_response(
+        "CL-AL-M0101-001-V1",
+        {"item_statuses": {"CI-does-not-exist": "COMPLETED"}, "note": "완료"},
+    )
+
+    assert updated.items[0]["status"] == "PENDING"  # unchanged
 
 
 @pytest.mark.asyncio

@@ -90,7 +90,15 @@ class ChecklistRepository:
     async def update_worker_response(
         self, checklist_id: str, worker_response: dict[str, Any]
     ) -> ChecklistORM:
-        """Update checklist with worker's completion notes and status."""
+        """Apply a worker's per-item statuses and note to a saved checklist.
+
+        `worker_response` is exactly what `WorkerInterruptScreen.handleSubmit`
+        (role E) sends: `{"item_statuses": {checklist_item_id: status}, "note": str, ...}`.
+        `item_statuses` only carries a status per item, not the full item
+        object, so each stored item is updated in place (status only) rather
+        than replaced - that's what keeps `title`/`instruction`/`source_ids`/etc.
+        from being dropped.
+        """
         try:
             stmt = select(ChecklistORM).where(ChecklistORM.checklist_id == checklist_id)
             result = await self.session.execute(stmt)
@@ -99,9 +107,14 @@ class ChecklistRepository:
             if not checklist:
                 raise DatabaseOperationError(f"Checklist {checklist_id} not found")
 
-            # Update worker responses
-            checklist.items = worker_response.get("items", checklist.items)
-            checklist.worker_note = worker_response.get("worker_note")
+            item_statuses = worker_response.get("item_statuses") or {}
+            checklist.items = [
+                {**item, "status": item_statuses[item["checklist_item_id"]]}
+                if item.get("checklist_item_id") in item_statuses
+                else item
+                for item in checklist.items
+            ]
+            checklist.worker_note = worker_response.get("note")
             checklist.completed_at = datetime.now(timezone.utc)
 
             await self.session.commit()

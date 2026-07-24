@@ -198,11 +198,15 @@ def test_worker_response_resumes_the_graph_and_requests_a_recheck(monkeypatch, c
     ingest_resp = client.post("/sensors/ingest", json=_payload())
     checklist_id = ingest_resp.json()["checklist_id"]
 
+    # This is exactly what WorkerInterruptScreen.handleSubmit (role E) sends.
     respond_resp = client.post(
         f"/worker/checklists/{checklist_id}/respond",
         json={
-            "items": [{"checklist_item_id": "CI-1", "status": "COMPLETED"}],
-            "worker_note": "냉각수 밸브 개방 완료",
+            "response_id": f"RP-{_alert_id_from_checklist_id(checklist_id)}-1",
+            "alert_id": _alert_id_from_checklist_id(checklist_id),
+            "submitted_at": "2026-07-24T00:05:00.000Z",
+            "item_statuses": {"CI-1": "COMPLETED"},
+            "note": "냉각수 밸브 개방 완료",
         },
     )
 
@@ -233,13 +237,13 @@ def test_responding_to_a_non_pending_checklist_is_rejected(monkeypatch, client):
     ingest_resp = client.post("/sensors/ingest", json=_payload())
     checklist_id = ingest_resp.json()["checklist_id"]
 
-    first = client.post(f"/worker/checklists/{checklist_id}/respond", json={"items": []})
+    first = client.post(f"/worker/checklists/{checklist_id}/respond", json={"item_statuses": {}})
     assert first.status_code == 200
 
-    second = client.post(f"/worker/checklists/{checklist_id}/respond", json={"items": []})
+    second = client.post(f"/worker/checklists/{checklist_id}/respond", json={"item_statuses": {}})
     assert second.status_code == 409
 
 
 def test_responding_to_an_unknown_checklist_is_a_404(client):
-    resp = client.post("/worker/checklists/CL-does-not-exist-V1/respond", json={"items": []})
+    resp = client.post("/worker/checklists/CL-does-not-exist-V1/respond", json={"item_statuses": {}})
     assert resp.status_code == 404

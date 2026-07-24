@@ -53,9 +53,19 @@ uv run pytest tests/ -q
     `notification_status=FAILED`로만 보고 — raise하면 병렬로 도는 RAG/Memory/체크리스트 생성 경로가
     `_with_error_handling`의 error_code 단락 로직에 걸려 같이 끊겨버림(계약 8절 명시 사항).
 - app/nodes/worker_interrupt.py (`worker_interrupt`), app/nodes/immediate_recheck.py (`request_immediate_recheck`)
-  : `worker_interrupt`는 `langgraph.types.interrupt()`로 그래프를 일시정지하고 `final_checklist`를
-    노출, `Command(resume=worker_response)`로만 재개됨 → `{"worker_response": ...}` 반환.
-    `request_immediate_recheck`는 계약대로 `alert_status=WAITING_RECHECK` + `recheck_requested_at` 반환.
+  : `worker_interrupt`는 `langgraph.types.interrupt()`로 그래프를 일시정지하고 `Command(resume=worker_response)`로만
+    재개됨 → `{"worker_response": ...}` 반환. `request_immediate_recheck`는 계약대로
+    `alert_status=WAITING_RECHECK` + `recheck_requested_at` 반환.
+  : **역할 E(선주님, UI 브랜치/`WorkerInterruptScreen`)와 인터페이스 정합**(2026-07-24 합의) —
+    - interrupt payload: `alert_id`/`checklist_id`뿐 아니라 `machine_id`/`machine_type`/`measured_at`/
+      `risk_level`/`ml_risk_score`/`emergency_reasons`/`final_checklist`/`notification_status`/
+      `immediate_alert_sent_at`까지 전부 포함 — `WorkerInterruptScreen`이 `state.*`로 직접 읽는
+      필드와 1:1로 맞춤(원래 3개 필드만 넘기던 것에서 확장).
+    - worker_response(재개 payload) 필드명: `WorkerInterruptScreen.handleSubmit`이 실제로 보내는
+      `{response_id, alert_id, submitted_at, item_statuses: {checklist_item_id: status}, note}`
+      기준으로 `ChecklistRepository.update_worker_response`를 맞춤(`items`/`worker_note` 기대하던
+      이전 구현에서 변경). `item_statuses`는 항목별 status만 담고 있어서, 저장된 각 항목의 `status`만
+      갱신하고 title/instruction/source_ids 등 나머지 필드는 그대로 보존.
 - app/api/worker_routes.py (`POST /worker/checklists/{checklist_id}/respond`)
   : checklist_id → alert_id → thread_id(`{machine_id}:{alert_id}`) 역산 후
     `graph.ainvoke(Command(resume=...), config=...)`로 재개. 재개 전 `graph.aget_state(...).next`에
