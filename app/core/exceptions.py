@@ -73,6 +73,12 @@ class WorkerResponseSaveError(ApplicationError):
     error_code = "WORKER_RESPONSE_SAVE_FAILED"
 
 
+class WorkerResponseValidationError(ApplicationError):
+    """Raised when a resumed worker response violates the incident contract."""
+
+    error_code = "WORKER_RESPONSE_VALIDATION_FAILED"
+
+
 class RecheckRequestError(ApplicationError):
     """Raised when an immediate sensor recheck cannot be requested."""
 
