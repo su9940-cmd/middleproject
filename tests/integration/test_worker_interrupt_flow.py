@@ -194,6 +194,14 @@ def test_worker_response_resumes_the_graph_and_requests_a_recheck(monkeypatch, c
         "app.services.ml_service.predict_risk_score",
         lambda **kwargs: (0.01, "test-v1", _THRESHOLDS),
     )
+    # Real notification_service.send_alert hits Slack over the network and
+    # needs SLACK_ALERT_WEBHOOK_URL - neither is available in tests, so this
+    # stands in for a successful delivery (failure path is covered in
+    # tests/unit/test_notification.py).
+    monkeypatch.setattr(
+        "app.nodes.notification.send_alert",
+        lambda alert_id, machine_id, message: None,
+    )
 
     ingest_resp = client.post("/sensors/ingest", json=_payload())
     checklist_id = ingest_resp.json()["checklist_id"]

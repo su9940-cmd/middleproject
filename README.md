@@ -48,14 +48,23 @@ uv run pytest tests/ -q
     조치 없이는 자동으로 안 내려감. `memory_context` 기반의 "악화/반복초과" 에스컬레이션은
     memory_agent가 아직 없어서 미반영 — 나중에 추가해야 함.
 - app/services/notification_service.py, app/nodes/notification.py (`send_immediate_alert`)
-  : EMERGENCY 즉시알림. 실제 페이징/SMS/Slack 채널이 아직 없어서 `notification_service.send_alert`는
-    CRITICAL 레벨 로그로 갈음(교체 지점 하나로 격리). 발송 실패는 절대 raise하지 않고
-    `notification_status=FAILED`로만 보고 — raise하면 병렬로 도는 RAG/Memory/체크리스트 생성 경로가
-    `_with_error_handling`의 error_code 단락 로직에 걸려 같이 끊겨버림(계약 8절 명시 사항).
+  : EMERGENCY 즉시알림. **역할 E(선주님)의 실제 구현을 채택**(2026-07-24) — Slack Incoming Webhook으로
+    발송하며, 웹훅 URL은 코드에 하드코딩하지 않고 `SLACK_ALERT_WEBHOOK_URL` 환경변수에서 읽음(미설정
+    시 `NotificationError`). 발송 실패는 절대 raise하지 않고 `notification_status=FAILED`로만 보고 —
+    raise하면 병렬로 도는 RAG/Memory/체크리스트 생성 경로가 `_with_error_handling`의 error_code 단락
+    로직에 걸려 같이 끊겨버림(계약 8절 명시 사항). 테스트 환경에는 웹훅이 없으므로
+    `app.nodes.notification.send_alert`를 모킹해서 검증(`tests/unit/test_notification.py`).
+- app/services/iot_service.py (`request_measurement`)
+  : **역할 C가 확정**(2026-07-24) — 역할 E가 제안한 시그니처(`request_measurement(machine_id, reason)`)와
+    예외 계약(`RecheckRequestError`)을 그대로 채택. 실제 IoT 장비가 없는 데모라 재측정 데이터 자체는
+    작업자가 `POST /sensors/ingest`에 `measurement_mode=IMMEDIATE_RECHECK`로 직접 다시 제출하므로,
+    이 함수는 요청 사실을 로그로 남기고 정상 반환하는 것 외에는 할 일이 없음(실제 설비 프로토콜이
+    생기면 본문만 교체).
 - app/nodes/worker_interrupt.py (`worker_interrupt`), app/nodes/immediate_recheck.py (`request_immediate_recheck`)
   : `worker_interrupt`는 `langgraph.types.interrupt()`로 그래프를 일시정지하고 `Command(resume=worker_response)`로만
-    재개됨 → `{"worker_response": ...}` 반환. `request_immediate_recheck`는 계약대로
-    `alert_status=WAITING_RECHECK` + `recheck_requested_at` 반환.
+    재개됨 → `{"worker_response": ...}` 반환. `request_immediate_recheck`는 `iot_service.request_measurement`
+    호출 후 성공 시 계약대로 `alert_status=WAITING_RECHECK` + `recheck_requested_at`, 실패 시
+    `error_code=RECHECK_REQUEST_FAILED` 반환.
   : **역할 E(선주님, UI 브랜치/`WorkerInterruptScreen`)와 인터페이스 정합**(2026-07-24 합의) —
     - interrupt payload: `alert_id`/`checklist_id`뿐 아니라 `machine_id`/`machine_type`/`measured_at`/
       `risk_level`/`ml_risk_score`/`emergency_reasons`/`final_checklist`/`notification_status`/
@@ -81,15 +90,23 @@ uv run pytest tests/ -q
 - app/repositories/{alert,checklist}_repository.py
   : `AlertRepository.get_by_id`, `ChecklistRepository.{get_by_id,get_latest_by_alert}` 추가 — 위 재개
     플로우가 checklist_id만 가지고 thread_id를 역산하는 데 필요.
-- tests/unit/test_backend.py, tests/unit/test_{predictive_agent,risk_policy,recovery_node,graph_routes,alert_lifecycle,notification,immediate_recheck,worker_interrupt,checklist_repository}.py,
+- tests/unit/test_backend.py, tests/unit/test_{predictive_agent,risk_policy,recovery_node,graph_routes,alert_lifecycle,notification,immediate_recheck,iot_service,worker_interrupt,checklist_repository}.py,
   tests/integration/{test_safety_graph,test_sensor_ingest_api,test_worker_interrupt_flow}.py
-  : 60건 전부 통과. `test_worker_interrupt_flow.py`는 rag_agent/memory_agent/action_draft_node/validator_agent
+  : 66건 전부 통과. `test_worker_interrupt_flow.py`는 rag_agent/memory_agent/action_draft_node/validator_agent
     (아직 없는 A/B 담당 노드)를 `sys.modules`에 최소 가짜 구현으로 꽂아 넣고, 실제 HTTP 요청으로
     EMERGENCY 접수 → 즉시알림 → 체크리스트 저장 → interrupt 정지 → 작업자 응답 → resume →
     WAITING_RECHECK까지 왕복 전체를 검증.
 
+## UI 브랜치(역할 E) 병합 시 확인한 것
+- **`pyproject.toml`에 `langgraph-checkpoint<4` 누락**으로 `from langgraph.types import interrupt`가
+  임포트 시점에 깨져 있었음(`langgraph-checkpoint>=4`가 `langchain-core==1.0.3`의 `Reviver` 시그니처와
+  안 맞음) — origin/UI에 직접 수정해서 push함(`langgraph-checkpoint<4` 추가 + `pytest` dev 의존성 선언).
+- ID 생성(`app/core/ids.py`)은 role C 소관이라 이번 병합 대상에서 제외 — 별도로 발견된
+  "경보생명주기" 다운로드 폴더(다른 role C 시도로 추정)의 `RD-M-0101-...123` 포맷은 이 저장소의
+  `RD-M0101-...`(계약 예시와 일치)와 다르므로 병합하지 않음.
+
 ## 다음 슬라이스 (아직 미구현)
 - Memory Agent가 조회할 이력 쿼리(직전 체크리스트, 정비 이력 등)는 아직 리포지토리에 없음 — 필요해지면 추가
 - memory_agent가 생기면 alert_lifecycle_node의 에스컬레이션 조건에 "악화 추세"/"반복 한도 초과" 반영
-- 정비 요청(관리자 승인 필요) 초안 저장용 리포지토리/테이블은 아직 없음 — action_draft_node/validator_agent가
-  `requires_maintenance_request`를 실제로 채우기 시작하면 필요해질 것
+- 정비 요청(관리자 승인 필요) 초안 저장용 리포지토리/테이블은 아직 없음 — `ManagerReviewScreen.jsx`(역할 미배정,
+  선주님이 코딩 프롬프트 12장 A~D 어디에도 없다고 직접 명시)가 필요로 하는 승인/반려 API도 이때 같이 설계해야 함

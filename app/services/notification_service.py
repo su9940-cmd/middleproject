@@ -1,35 +1,57 @@
-"""Mock outbound-notification adapter for EMERGENCY alerts.
+"""실제 알림 발송 채널 구현 (Slack Incoming Webhook).
 
-No real paging/SMS/Slack channel is wired up yet, so "sending" a
-notification means logging it at CRITICAL level - this module is the single
-seam to replace with a real HTTP call once a channel is chosen. Standing in
-for a missing external integration this way mirrors how `app.api.sensor_routes`
-stands in for real IoT hardware today.
+역할 E(인터페이스 엔지니어) 구현을 채택. API 키/URL 같은 민감정보는 코드에
+직접 작성하지 않고 환경 변수(SLACK_ALERT_WEBHOOK_URL)에서 읽는다.
 """
 
 from __future__ import annotations
 
-import logging
+import os
 from typing import Any
+
+import requests
 
 from app.core.exceptions import NotificationError
 
-logger = logging.getLogger(__name__)
 
+def send_alert(alert_id: str, machine_id: str, message: str) -> None:
+    """Slack 채널로 긴급 알림을 발송한다.
 
-def send_alert(payload: dict[str, Any]) -> None:
-    """Dispatch one immediate-alert notification.
+    Args:
+        alert_id: 경보 ID (예: "AL-M0101-20260723T101500")
+        machine_id: 설비 ID
+        message: 알림 본문
 
-    Raises `NotificationError` if the payload can't be dispatched (missing
-    `alert_id`, or a lower-level delivery failure once a real channel exists).
-    Callers (see `app.nodes.notification.send_immediate_alert`) are
-    responsible for catching this and reporting it through
-    `notification_status`/`notification_error` rather than letting it
-    propagate as an unhandled node error.
+    Raises:
+        NotificationError: 웹훅 URL 미설정, 네트워크 오류, 4xx/5xx 응답 등
+            알림 발송이 실패한 모든 경우. `send_immediate_alert` 노드가 이
+            예외를 잡아 notification_status=FAILED로 변환한다.
     """
+    webhook_url = os.environ.get("SLACK_ALERT_WEBHOOK_URL")
+    if not webhook_url:
+        raise NotificationError("SLACK_ALERT_WEBHOOK_URL 환경변수가 설정되지 않았습니다.")
 
-    alert_id = payload.get("alert_id")
-    if not alert_id:
-        raise NotificationError("cannot send an immediate alert without alert_id")
+    payload: dict[str, Any] = {
+        "text": f":rotating_light: {message}",
+        "blocks": [
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": f"*:rotating_light: 긴급 알림*\n{message}"},
+            },
+            {
+                "type": "context",
+                "elements": [
+                    {"type": "mrkdwn", "text": f"alert_id: `{alert_id}` · machine_id: `{machine_id}`"}
+                ],
+            },
+        ],
+    }
 
-    logger.critical("IMMEDIATE ALERT %s: %s", alert_id, payload)
+    try:
+        response = requests.post(webhook_url, json=payload, timeout=5)
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        raise NotificationError(
+            f"Slack 알림 발송 실패: {exc}",
+            details={"alert_id": alert_id, "machine_id": machine_id},
+        ) from exc
