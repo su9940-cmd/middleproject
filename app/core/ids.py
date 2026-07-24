@@ -25,3 +25,15 @@ def build_thread_id(machine_id: str, alert_id: str) -> str:
     """{machine_id}:{alert_id} - machine_id keeps its hyphen here (":" is the delimiter)."""
 
     return f"{machine_id}:{alert_id}"
+
+
+def generate_maintenance_request_id(alert_id: str) -> str:
+    """MR-{alert_id}, e.g. MR-AL-M0101-20260723T101500.
+
+    Not in the original ID contract (section 10) - deterministic per
+    alert_id (no timestamp suffix) so `MaintenanceRequestRepository.create_draft`
+    can treat a repeated draft for the same alert as idempotent, the same way
+    `ChecklistRepository.save_checklist` does per checklist_id.
+    """
+
+    return f"MR-{alert_id}"

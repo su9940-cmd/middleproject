@@ -90,12 +90,30 @@ uv run pytest tests/ -q
 - app/repositories/{alert,checklist}_repository.py
   : `AlertRepository.get_by_id`, `ChecklistRepository.{get_by_id,get_latest_by_alert}` 추가 — 위 재개
     플로우가 checklist_id만 가지고 thread_id를 역산하는 데 필요.
-- tests/unit/test_backend.py, tests/unit/test_{predictive_agent,risk_policy,recovery_node,graph_routes,alert_lifecycle,notification,immediate_recheck,iot_service,worker_interrupt,checklist_repository}.py,
-  tests/integration/{test_safety_graph,test_sensor_ingest_api,test_worker_interrupt_flow}.py
-  : 66건 전부 통과. `test_worker_interrupt_flow.py`는 rag_agent/memory_agent/action_draft_node/validator_agent
+- app/core/enums.py (`MaintenanceRequestStatus`), app/models/orm_models.py (`MaintenanceRequestORM`),
+  app/repositories/maintenance_repository.py, app/api/maintenance_routes.py
+  : **정비 요청 승인 기능**(FR-14, `ManagerReviewScreen.jsx`용 — 코딩 프롬프트 12장에는 없던 신규 기능,
+    2026-07-24 팀 논의로 role C 담당 확정). 팀 결정사항:
+    - `alerts`와 분리된 별도 테이블(`maintenance_requests`) — 승인 생애주기가 경보 생애주기와 독립적.
+    - 상태: `PENDING`/`APPROVED`/`REJECTED`/`DEFERRED`로 시작, 실제 정비완료 상태가 필요해지면 `COMPLETED` 추가.
+    - API: `GET /maintenance-requests/pending`, `POST /maintenance-requests/{maintenance_request_id}/decision`.
+    - 외부 JSON은 camelCase, 내부 DB/Python은 snake_case — 수동 별칭이 아니라
+      `pydantic.alias_generators.to_camel`을 `alias_generator`로 지정해 자동 변환.
+    - `maintenance_request_id = MR-{alert_id}`(타임스탬프 없음) — `action_draft_node`(role B)가
+      아직 없어 같은 alert에 대해 여러 번 트리거될 수 있는 상황을 idempotent하게 처리하려는 의도
+      (`ChecklistRepository.save_checklist`와 동일 패턴).
+    - **아직 안 한 것**: `action_draft_node`(role B)가 `requires_maintenance_request`/`action_draft`를
+      실제로 채우기 시작하면, 그 시점에 draft를 생성하는 persistence 노드(`create_draft` 호출)를
+      그래프에 연결해야 함 — role B의 실제 출력 형태(title/priority/recommendation을 어떻게
+      구성할지)를 보지 않고 지금 미리 만들면 추측성 매핑이 될 것 같아 스키마/API만 먼저 확정하고
+      보류함.
+- tests/unit/test_backend.py, tests/unit/test_{predictive_agent,risk_policy,recovery_node,graph_routes,alert_lifecycle,notification,immediate_recheck,iot_service,worker_interrupt,checklist_repository,maintenance_repository}.py,
+  tests/integration/{test_safety_graph,test_sensor_ingest_api,test_worker_interrupt_flow,test_maintenance_routes}.py
+  : 77건 전부 통과. `test_worker_interrupt_flow.py`는 rag_agent/memory_agent/action_draft_node/validator_agent
     (아직 없는 A/B 담당 노드)를 `sys.modules`에 최소 가짜 구현으로 꽂아 넣고, 실제 HTTP 요청으로
     EMERGENCY 접수 → 즉시알림 → 체크리스트 저장 → interrupt 정지 → 작업자 응답 → resume →
-    WAITING_RECHECK까지 왕복 전체를 검증.
+    WAITING_RECHECK까지 왕복 전체를 검증. `test_maintenance_routes.py`는 응답 JSON이 실제로
+    camelCase인지(`maintenanceRequestId`, `alertId` 등)까지 검증.
 
 ## UI 브랜치(역할 E) 병합 시 확인한 것
 - **`pyproject.toml`에 `langgraph-checkpoint<4` 누락**으로 `from langgraph.types import interrupt`가
@@ -108,5 +126,6 @@ uv run pytest tests/ -q
 ## 다음 슬라이스 (아직 미구현)
 - Memory Agent가 조회할 이력 쿼리(직전 체크리스트, 정비 이력 등)는 아직 리포지토리에 없음 — 필요해지면 추가
 - memory_agent가 생기면 alert_lifecycle_node의 에스컬레이션 조건에 "악화 추세"/"반복 한도 초과" 반영
-- 정비 요청(관리자 승인 필요) 초안 저장용 리포지토리/테이블은 아직 없음 — `ManagerReviewScreen.jsx`(역할 미배정,
-  선주님이 코딩 프롬프트 12장 A~D 어디에도 없다고 직접 명시)가 필요로 하는 승인/반려 API도 이때 같이 설계해야 함
+- action_draft_node(role B)가 실제로 생기면 `MaintenanceRequestRepository.create_draft`를 호출하는
+  persistence 노드를 그래프에 연결 — title/recommendation/priority를 action_draft에서 어떻게
+  뽑아낼지는 role B의 실제 출력을 보고 정해야 함

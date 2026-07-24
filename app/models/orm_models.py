@@ -11,6 +11,7 @@ from app.core.enums import (
     ChecklistItemStatus,
     ExperienceLevel,
     MachineType,
+    MaintenanceRequestStatus,
     MeasurementMode,
     NotificationStatus,
     RiskLevel,
@@ -112,6 +113,37 @@ class ChecklistORM(Base):
     requires_maintenance_request: Mapped[bool] = mapped_column(default=False, nullable=False)
 
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+
+class MaintenanceRequestORM(Base):
+    """DB table for maintenance-request drafts awaiting manager approval (FR-14).
+
+    Kept separate from `AlertORM` (one alert may or may not have a draft, and
+    its approval lifecycle is independent of the alert's own lifecycle) per
+    the 2026-07-24 team decision.
+    """
+
+    __tablename__ = "maintenance_requests"
+
+    maintenance_request_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    alert_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    machine_id: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
+    machine_type: Mapped[MachineType] = mapped_column(Enum(MachineType), nullable=False)
+
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    recommendation: Mapped[str] = mapped_column(Text, nullable=False)
+    priority: Mapped[str] = mapped_column(String(20), nullable=False)
+
+    status: Mapped[MaintenanceRequestStatus] = mapped_column(
+        Enum(MaintenanceRequestStatus), default=MaintenanceRequestStatus.PENDING, nullable=False
+    )
+    decided_by: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    decision_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )

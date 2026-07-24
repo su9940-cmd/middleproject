@@ -85,3 +85,18 @@ class ChecklistItemStatus(StrEnum):
     COMPLETED = "COMPLETED"
     SKIPPED = "SKIPPED"
     FAILED = "FAILED"
+
+
+class MaintenanceRequestStatus(StrEnum):
+    """Manager decision state for a drafted maintenance request (FR-14).
+
+    Not part of the original 12-role contract - `ManagerReviewScreen.jsx`
+    (role E) called out this whole feature as unassigned; the team agreed
+    role C owns it, starting with these four values (COMPLETED added later
+    only if an actual maintenance-completion flow is needed).
+    """
+
+    PENDING = "PENDING"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+    DEFERRED = "DEFERRED"

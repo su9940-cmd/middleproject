@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from app.api import alert_routes, sensor_routes, worker_routes
+from app.api import alert_routes, maintenance_routes, sensor_routes, worker_routes
 from app.core.db import create_tables
 from app.core.exceptions import ApplicationError, SensorValidationError
 from app.graph.builder import build_safety_graph
@@ -41,6 +41,7 @@ app = FastAPI(
 app.include_router(sensor_routes.router)
 app.include_router(alert_routes.router)
 app.include_router(worker_routes.router)
+app.include_router(maintenance_routes.router)
 
 
 @app.exception_handler(ApplicationError)
