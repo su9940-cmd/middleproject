@@ -1,62 +1,99 @@
-"""
-근거 검증 (AC-04).
+"""Deterministic validation of Action Draft citations (AC-04)."""
 
-Validator가 통과시키는 모든 체크리스트 항목은 반드시 RAG가 실제로 반환한
-문서의 source_id에 매핑되어야 한다. 이 모듈은 순수 함수로 그 매핑을 검사한다.
-
-Action Draft 단계에서 source_id 없는 문서는 이미 제외되지만, Validator는
-다시 두 가지를 재검증한다:
-    1. action.source_ids가 비어있지 않은가
-    2. 각 source_id가 이번 사건의 retrieved_documents에 실제로 존재하는가
-
-이 재검증이 필요한 이유: Action Draft 이후에 상태가 조작되었거나,
-전달 과정에서 source_id가 잘못될 경우를 감지하기 위함.
-"""
+from __future__ import annotations
 
 from typing import Any
 
 
-def collect_valid_source_ids(documents: list[dict[str, Any]]) -> frozenset[str]:
-    """RAG가 반환한 문서 목록에서 유효한 source_id 집합을 만든다."""
-    return frozenset(
-        doc["source_id"]
-        for doc in documents
-        if doc.get("source_id")
-    )
+def filter_grounded_items(
+    items: list[dict[str, Any]], documents: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Partition items by whether every citation maps to this RAG result.
 
-
-def is_action_grounded(
-    action: dict[str, Any],
-    valid_source_ids: frozenset[str],
-) -> bool:
-    """action의 모든 source_id가 유효한 문서에 매핑되는지 확인한다.
-
-    - source_ids가 비어있으면 근거 없음(False).
-    - source_ids 중 하나라도 valid_source_ids에 없으면 근거 없음(False).
-    - 모든 source_id가 매핑되면 근거 있음(True).
+    Action Draft stores a citation as a source id, document type, section and
+    exact excerpt.  Checking all of these prevents a valid-but-unrelated
+    ``source_id`` from being used as a superficial citation.
     """
-    source_ids = action.get("source_ids") or []
-    if not source_ids:
+
+    grounded: list[dict[str, Any]] = []
+    feedback: list[dict[str, Any]] = []
+    for item in items:
+        error = _grounding_error(item, documents)
+        if error is None:
+            grounded.append(item)
+        else:
+            feedback.append(error)
+    return grounded, feedback
+
+
+def _grounding_error(
+    item: dict[str, Any], documents: list[dict[str, Any]]
+) -> dict[str, Any] | None:
+    item_id = item.get("checklist_item_id")
+    if not isinstance(item_id, str) or not item_id.strip():
+        return {"code": "MISSING_ITEM_ID", "message": "checklist_item_id is required"}
+
+    citations = item.get("citations")
+    if not isinstance(citations, list) or not citations:
+        return _feedback(item_id, "MISSING_CITATION", "each item requires at least one SOP citation")
+
+    has_sop = False
+    for citation in citations:
+        if not isinstance(citation, dict):
+            return _feedback(item_id, "INVALID_CITATION", "citation must be an object")
+        if _matches_retrieved_document(citation, documents):
+            if str(citation.get("document_type") or "").lower() == "sop":
+                has_sop = True
+            continue
+        return _feedback(
+            item_id,
+            "UNGROUNDED_CITATION",
+            "citation does not match a document retrieved for this incident",
+        )
+    if not has_sop:
+        return _feedback(item_id, "MISSING_SOP_CITATION", "worker actions must be grounded in SOP")
+    return None
+
+
+def _matches_retrieved_document(citation: dict[str, Any], documents: list[dict[str, Any]]) -> bool:
+    source_id = str(citation.get("source_id") or "").strip()
+    excerpt = str(citation.get("source_excerpt") or "").strip()
+    if not source_id or not excerpt:
         return False
-    return all(sid in valid_source_ids for sid in source_ids)
+    citation_type = str(citation.get("document_type") or "").strip().lower()
+    citation_section = str(citation.get("section") or "").strip()
+    for document in documents:
+        if str(document.get("source_id") or "").strip() != source_id:
+            continue
+        if str(document.get("document_type") or "").strip().lower() != citation_type:
+            continue
+        if str(document.get("section") or "").strip() != citation_section:
+            continue
+        content = str(document.get("content") or "").strip()
+        if excerpt == content:
+            return True
+    return False
+
+
+def _feedback(item_id: str, code: str, message: str) -> dict[str, Any]:
+    return {"code": code, "checklist_item_id": item_id, "message": message}
+
+
+# Backward-compatible names used by the original Validator unit tests.
+def collect_valid_source_ids(documents: list[dict[str, Any]]) -> frozenset[str]:
+    return frozenset(str(doc.get("source_id")) for doc in documents if doc.get("source_id"))
+
+
+def is_action_grounded(action: dict[str, Any], valid_source_ids: frozenset[str]) -> bool:
+    source_ids = action.get("source_ids") or []
+    return bool(source_ids) and all(source_id in valid_source_ids for source_id in source_ids)
 
 
 def filter_grounded_actions(
-    actions: list[dict[str, Any]],
-    documents: list[dict[str, Any]],
+    actions: list[dict[str, Any]], documents: list[dict[str, Any]]
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """근거 있는 조치와 없는 조치를 분리한다.
-
-    Returns:
-        (grounded_actions, dropped_actions)
-        dropped_actions는 Validator가 fallback을 결정할 때 참고한다.
-    """
-    valid_ids = collect_valid_source_ids(documents)
-    grounded: list[dict[str, Any]] = []
-    dropped: list[dict[str, Any]] = []
-    for action in actions:
-        if is_action_grounded(action, valid_ids):
-            grounded.append(action)
-        else:
-            dropped.append(action)
-    return grounded, dropped
+    valid_source_ids = collect_valid_source_ids(documents)
+    return (
+        [action for action in actions if is_action_grounded(action, valid_source_ids)],
+        [action for action in actions if not is_action_grounded(action, valid_source_ids)],
+    )

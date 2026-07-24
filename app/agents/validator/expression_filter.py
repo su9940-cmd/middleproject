@@ -71,6 +71,30 @@ def sanitize_action(action: dict[str, Any]) -> dict[str, Any]:
     return cleaned
 
 
+def find_expression_violations(item: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return feedback instead of rewriting a worker-facing instruction.
+
+    The final graph requires Validator to return an approved draft unchanged.
+    A forbidden expression is therefore fed back to Action Draft for revision,
+    rather than silently changing the text at this stage.
+    """
+
+    item_id = item.get("checklist_item_id")
+    violations: list[dict[str, Any]] = []
+    for field in ("title", "instruction"):
+        value = str(item.get(field) or "")
+        if contains_forbidden_expression(value):
+            violations.append(
+                {
+                    "code": "FORBIDDEN_LEGAL_EXPRESSION",
+                    "checklist_item_id": item_id,
+                    "field": field,
+                    "message": "단정적인 법률 표현을 제거하고 검토 안내 수준으로 수정하세요.",
+                }
+            )
+    return violations
+
+
 def is_action_appropriate_for_risk(
     action: dict[str, Any],
     risk_level: RiskLevel | str | None,

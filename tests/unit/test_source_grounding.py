@@ -4,6 +4,7 @@ import unittest
 
 from app.agents.validator.source_grounding import (
     collect_valid_source_ids,
+    filter_grounded_items,
     filter_grounded_actions,
     is_action_grounded,
 )
@@ -45,6 +46,42 @@ class FilterGroundedActionsTest(unittest.TestCase):
         grounded, dropped = filter_grounded_actions(actions, docs)
         self.assertEqual(len(grounded), 1)
         self.assertEqual(len(dropped), 2)
+
+
+class FilterGroundedItemsTest(unittest.TestCase):
+    def test_requires_matching_document_type_section_and_excerpt(self) -> None:
+        document = {
+            "source_id": "SOP-1",
+            "document_type": "sop",
+            "section": "4.1",
+            "content": "Check the cooling valve.",
+        }
+        item = {
+            "checklist_item_id": "ITEM-1",
+            "citations": [{
+                "source_id": "SOP-1",
+                "document_type": "sop",
+                "section": "4.1",
+                "source_excerpt": "Check the cooling valve.",
+            }],
+        }
+        grounded, feedback = filter_grounded_items([item], [document])
+        self.assertEqual(grounded, [item])
+        self.assertEqual(feedback, [])
+
+    def test_rejects_same_source_id_with_wrong_excerpt(self) -> None:
+        document = {
+            "source_id": "SOP-1", "document_type": "sop", "section": "4.1", "content": "A",
+        }
+        item = {
+            "checklist_item_id": "ITEM-1",
+            "citations": [{
+                "source_id": "SOP-1", "document_type": "sop", "section": "4.1", "source_excerpt": "B",
+            }],
+        }
+        grounded, feedback = filter_grounded_items([item], [document])
+        self.assertEqual(grounded, [])
+        self.assertEqual(feedback[0]["code"], "UNGROUNDED_CITATION")
 
 
 if __name__ == "__main__":

@@ -54,6 +54,29 @@ def deduplicate_actions(actions: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [merged_by_key[k] for k in order]
 
 
+def deduplicate_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Return one representative for exact worker-facing duplicate items.
+
+    Unlike the legacy action format, an Action Draft item has ``instruction``
+    and citation objects.  Title-only merging is unsafe because two SOP steps
+    can have the same short title but different instructions.  Validator only
+    detects duplicate drafts; it does not mutate or merge them for the worker.
+    """
+
+    seen: set[tuple[str, str]] = set()
+    result: list[dict[str, Any]] = []
+    for item in items:
+        key = (
+            normalize_title(str(item.get("title") or "")),
+            _WHITESPACE_RE.sub(" ", str(item.get("instruction") or "").strip()).casefold(),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(item)
+    return result
+
+
 def _merge_action(base: dict[str, Any], other: dict[str, Any]) -> dict[str, Any]:
     """두 조치를 하나로 병합한다. base가 대표, other의 속성은 합집합·상향."""
     merged = dict(base)

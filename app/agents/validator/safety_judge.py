@@ -42,25 +42,28 @@ _SYSTEM_PROMPT = """\
 
 def judge_safety(
     llm: LLMClient | None,
-    actions: list[dict[str, Any]],
     risk_level: RiskLevel | str,
     machine_type: str | None,
+    actions: list[dict[str, Any]] | None = None,
+    *,
+    items: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """LLM에게 안전성 판정을 받는다.
 
     Args:
         llm: LLM 클라이언트. None이면 판정을 건너뛰고 SKIPPED 상태를 반환.
-        actions: 규칙 검증을 이미 통과한 최종 조치 목록.
+        actions: 이전 Action Draft 형식 호환용 조치 목록.
         risk_level: 현재 위험 단계.
         machine_type: 설비 타입 (프롬프트 컨텍스트용).
 
     Returns:
         safety_review dict. LLM 실패 시에도 dict 구조를 유지한다.
     """
-    if llm is None or not actions:
+    review_items = items if items is not None else (actions or [])
+    if llm is None or not review_items:
         return _skipped_review("LLM 미주입 또는 판정할 조치 없음")
 
-    user_prompt = _build_prompt(actions, risk_level, machine_type)
+    user_prompt = _build_prompt(review_items, risk_level, machine_type)
 
     try:
         raw = llm.generate_structured(
@@ -73,7 +76,7 @@ def judge_safety(
         return _failed_review(str(exc))
 
     # 알려진 action_id만 남기고, 나머지 concerns는 제거 (LLM 환각 방지)
-    known_ids = {a["action_id"] for a in actions}
+    known_ids = {a["action_id"] for a in review_items if a.get("action_id")}
     valid_concerns = [
         {"action_id": c.action_id, "severity": c.severity, "reason": c.reason}
         for c in review.concerns
@@ -125,8 +128,8 @@ def _build_prompt(
             f"required={action.get('required', False)}, "
             f"previously_failed={action.get('previously_failed', False)}\n"
             f"    title: {action.get('title', '')}\n"
-            f"    description: {action.get('description', '')}\n"
-            f"    source_ids: {', '.join(action.get('source_ids', []))}"
+            f"    instruction: {action.get('instruction', action.get('description', ''))}\n"
+            f"    citations: {', '.join(_citation_ids(action))}"
         )
 
     parts.append(
@@ -134,3 +137,10 @@ def _build_prompt(
         "전체 판정을 overall_verdict로 요약하세요. 조치를 수정하거나 삭제하지 마세요."
     )
     return "\n".join(parts)
+
+
+def _citation_ids(action: dict[str, Any]) -> list[str]:
+    citations = action.get("citations")
+    if isinstance(citations, list):
+        return [str(citation.get("source_id")) for citation in citations if isinstance(citation, dict)]
+    return [str(source_id) for source_id in action.get("source_ids", [])]
