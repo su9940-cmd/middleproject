@@ -61,4 +61,13 @@ dependencies = [
     # UI 및 개발 환경
     "gradio>=5.0.0", # 최신 인터페이스 지원
     "streamlit>=1.41.0", # 최신 위젯 지원
+    # langgraph-checkpoint>=4는 langchain-core==1.0.3의 Reviver 시그니처와 맞지 않아
+    # `from langgraph.types import interrupt`(app/nodes/worker_interrupt.py)가
+    # 임포트 시점에 TypeError로 깨진다 - 이 상한을 반드시 유지할 것.
+    "langgraph-checkpoint<4",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
 ]
