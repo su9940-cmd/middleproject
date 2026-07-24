@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from app.core.config import get_settings
+# from app.core.config import get_settings  # TODO(config): config 확정 후 주입
 from app.core.enums import MachineType
 
 
@@ -167,7 +167,9 @@ def retrieve_documents(
     상위(rag_agent)에서 예외를 오류 계약으로 변환할 수 있도록
     여기서는 예외를 삼키지 않고 그대로 전파한다.
     """
-    settings = get_settings()
+    # TODO(config): config 확정 후 settings.rag_default_top_k 로 대체
+    # settings = get_settings()
+    default_top_k = 5  # 임시 기본값
     manual_id = resolve_manual_id(
         machine_id=request.machine_id,
         machine_type=request.machine_type,
@@ -176,7 +178,8 @@ def retrieve_documents(
     metadata_filter = build_metadata_filter(manual_id)
     raw_results = vector_store.query(
         query_text=request.query_text,
-        top_k=request.top_k or settings.rag_default_top_k,
+        top_k=request.top_k or default_top_k,
+        # top_k=request.top_k or settings.rag_default_top_k,
         metadata_filter=metadata_filter,
     )
     return normalize_retrieved_documents(raw_results)
