@@ -51,3 +51,7 @@ desktop.ini
 # 프로젝트에 사용하지 않는 개인 작업 파일
 dd.ipynb
 중간프로젝트_지침서.docx
+
+# Claude Code 전용 파일 (프로젝트 산출물 아님)
+CLAUDE.md
+_debrief/
