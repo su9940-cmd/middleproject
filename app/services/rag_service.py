@@ -118,12 +118,8 @@ def build_metadata_filter(
     적재 시점에 조문을 적용 설비 수만큼 복제해 각 청크에 단일 manual_id를
     부여한다. 따라서 여기서는 단순 일치 매칭으로 필터링한다.
     """
-    return {
-        "$and": [
-            {"manual_id": manual_id},
-            {"document_type": {"$in": list(document_types)}},
-        ]
-    }
+    return {"manual_id": manual_id}
+
 
 
 

@@ -61,3 +61,8 @@ dependencies = [
     "gradio>=5.0.0", # 최신 인터페이스 지원
     "streamlit>=1.41.0", # 최신 위젯 지원
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
