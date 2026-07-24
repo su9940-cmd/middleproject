@@ -1,13 +1,9 @@
-"""rag_agent 및 rag_service 단위 테스트.
-
-Vector store는 가짜 구현으로 대체해 검색 계약을 검증한다.
-"""
+"""Unit tests for the RAG agent and retrieval service contracts."""
 
 from __future__ import annotations
 
+import unittest
 from typing import Any
-
-import pytest
 
 from app.agents.rag import build_query_text, rag_agent
 from app.core.enums import MachineType, RiskLevel
@@ -20,7 +16,7 @@ from app.services.rag_service import (
 
 
 class FakeVectorStore:
-    """테스트용 가짜 Vector store."""
+    """Small vector-store double used by retrieval tests."""
 
     def __init__(self, results: list[dict[str, Any]]) -> None:
         self.results = results
@@ -36,75 +32,82 @@ class FakeVectorStore:
         return self.results[:top_k]
 
 
-def test_resolve_manual_id_prefers_explicit() -> None:
-    assert (
-        resolve_manual_id("M-0101", MachineType.REACTOR, "custom_manual")
-        == "custom_manual"
-    )
+class RAGAgentTest(unittest.TestCase):
+    def test_resolve_manual_id_prefers_explicit(self) -> None:
+        self.assertEqual(
+            resolve_manual_id("M-0101", MachineType.REACTOR, "custom_manual"),
+            "custom_manual",
+        )
 
+    def test_resolve_manual_id_by_machine_id(self) -> None:
+        self.assertEqual(
+            resolve_manual_id("M-0104", MachineType.PUMP),
+            "pump_safety_manual",
+        )
 
-def test_resolve_manual_id_by_machine_id() -> None:
-    assert (
-        resolve_manual_id("M-0104", MachineType.PUMP)
-        == "pump_safety_manual"
-    )
+    def test_resolve_manual_id_raises_when_unknown(self) -> None:
+        with self.assertRaises(ValueError):
+            resolve_manual_id("M-9999", "UNKNOWN")  # type: ignore[arg-type]
 
-
-def test_resolve_manual_id_raises_when_unknown() -> None:
-    with pytest.raises(ValueError):
-        resolve_manual_id("M-9999", "UNKNOWN")  # type: ignore[arg-type]
-
-
-def test_normalize_drops_incomplete_chunks() -> None:
-    raw = [
-        {
-            "source_id": "s1",
-            "document_type": "sop",
-            "title": "t1",
-            "content": "c1",
-        },
-        {"source_id": "s2", "title": "no content"},  # 필수 결손 → 제외
-    ]
-    normalized = normalize_retrieved_documents(raw)
-    assert len(normalized) == 1
-    assert normalized[0]["section"] is None
-    assert normalized[0]["relevance_score"] is None
-
-
-def test_retrieve_documents_applies_manual_filter() -> None:
-    store = FakeVectorStore(
-        [
+    def test_normalize_drops_incomplete_chunks(self) -> None:
+        raw = [
             {
                 "source_id": "s1",
                 "document_type": "sop",
-                "title": "펌프 최소유량",
-                "content": "최소 유량 30% 유지",
-            }
+                "title": "t1",
+                "content": "c1",
+            },
+            {"source_id": "s2", "title": "no content"},
         ]
-    )
-    request = RetrievalRequest(
-        machine_id="M-0104",
-        machine_type=MachineType.PUMP,
-        query_text="펌프 최소 유량",
-    )
-    docs = retrieve_documents(store, request)
-    assert store.last_filter == {"manual_id": "pump_safety_manual"}
-    assert docs[0]["document_type"] == "sop"
+        normalized = normalize_retrieved_documents(raw)
+        self.assertEqual(len(normalized), 1)
+        self.assertIsNone(normalized[0]["section"])
+        self.assertIsNone(normalized[0]["relevance_score"])
+
+    def test_retrieve_documents_applies_manual_filter(self) -> None:
+        store = FakeVectorStore(
+            [
+                {
+                    "source_id": "s1",
+                    "document_type": "sop",
+                    "title": "펌프 최소유량",
+                    "content": "최소 유량 30% 유지",
+                }
+            ]
+        )
+        request = RetrievalRequest(
+            machine_id="M-0104",
+            machine_type=MachineType.PUMP,
+            query_text="펌프 최소 유량",
+        )
+        documents = retrieve_documents(store, request)
+        self.assertEqual(
+            store.last_filter,
+            {
+                "$and": [
+                    {"manual_id": "pump_safety_manual"},
+                    {"document_type": {"$in": ["sop", "law"]}},
+                ]
+            },
+        )
+        self.assertEqual(documents[0]["document_type"], "sop")
+
+    def test_build_query_text_includes_emergency_reasons(self) -> None:
+        state = {
+            "machine_type": MachineType.REACTOR,
+            "risk_level": RiskLevel.EMERGENCY,
+            "emergency_reasons": ["온도 초과"],
+        }
+        query = build_query_text(state)
+        self.assertIn("REACTOR", query)
+        self.assertIn("온도 초과", query)
+
+    def test_rag_agent_returns_error_contract_on_missing_ids(self) -> None:
+        result = rag_agent({"risk_level": RiskLevel.WARNING})
+        self.assertEqual(result["error_code"], "RAG_RETRIEVAL_FAILED")
+        self.assertEqual(result["failed_node"], "rag_agent")
+        self.assertEqual(result["retrieved_documents"], [])
 
 
-def test_build_query_text_includes_emergency_reasons() -> None:
-    state = {
-        "machine_type": MachineType.REACTOR,
-        "risk_level": RiskLevel.EMERGENCY,
-        "emergency_reasons": ["온도 폭주"],
-    }
-    query = build_query_text(state)
-    assert "REACTOR" in query
-    assert "온도 폭주" in query
-
-
-def test_rag_agent_returns_error_contract_on_missing_ids() -> None:
-    result = rag_agent({"risk_level": RiskLevel.WARNING})
-    assert result["error_code"] == "RAG_RETRIEVAL_FAILED"
-    assert result["failed_node"] == "rag_agent"
-    assert result["retrieved_documents"] == []
+if __name__ == "__main__":
+    unittest.main()

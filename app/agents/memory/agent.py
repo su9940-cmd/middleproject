@@ -98,7 +98,10 @@ class MemoryAgent:
 
     def _build_context(self, machine_id: str, state: SafetyState) -> dict[str, Any]:
         """리포지토리 4개를 호출해 memory_context 계약 필드를 계산한다."""
-        alerts = self._alerts.list_by_machine(machine_id)
+        alerts = self._alerts.list_by_machine(
+            machine_id,
+            exclude_alert_id=state.get("alert_id"),
+        )
         checklist_items = self._checklists.list_items_by_machine(machine_id)
         latest_note = self._worker_responses.latest_note_by_machine(machine_id)
         maintenance_history = self._maintenance.list_by_machine(machine_id)
@@ -121,6 +124,7 @@ class MemoryAgent:
             "failed_action_ids": failed_ids,
             "latest_worker_note": latest_note,
             "maintenance_history": maintenance_history,
+            "repeat_count": repeat_count,
             "is_risk_escalated": is_risk_escalated(previous_risk_level, state.get("risk_level")),
             "is_repeat_limit_exceeded": repeat_count >= REPEAT_LIMIT_THRESHOLD,
         }

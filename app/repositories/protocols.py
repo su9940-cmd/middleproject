@@ -15,8 +15,16 @@ from typing import Any, Protocol
 class AlertRepository(Protocol):
     """경보(alerts) 테이블 조회 인터페이스."""
 
-    def list_by_machine(self, machine_id: str, limit: int = 10) -> list[dict[str, Any]]:
+    def list_by_machine(
+        self,
+        machine_id: str,
+        limit: int = 10,
+        exclude_alert_id: str | None = None,
+    ) -> list[dict[str, Any]]:
         """설비의 최근 경보를 최신순으로 반환한다.
+
+        ``exclude_alert_id``가 주어지면 현재 처리 중인 경보는 이력에서 제외한다.
+        Memory Agent가 현재 경보를 직전 경보로 오인하지 않기 위한 계약이다.
 
         각 dict는 최소 다음 키를 포함해야 한다:
             alert_id: str

@@ -11,8 +11,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from app.core.config import get_settings
 from app.core.enums import MachineType
+
+
+DEFAULT_TOP_K = 5
 
 
 # ML 모델 컬럼이 아니라, 설비 ID → 매뉴얼 ID 매핑.
@@ -61,7 +63,7 @@ class RetrievalRequest:
     machine_type: MachineType
     query_text: str
     manual_id: str | None = None
-    top_k: int = 5
+    top_k: int = DEFAULT_TOP_K
 
 
 def resolve_manual_id(
@@ -167,7 +169,6 @@ def retrieve_documents(
     상위(rag_agent)에서 예외를 오류 계약으로 변환할 수 있도록
     여기서는 예외를 삼키지 않고 그대로 전파한다.
     """
-    settings = get_settings()
     manual_id = resolve_manual_id(
         machine_id=request.machine_id,
         machine_type=request.machine_type,
@@ -176,7 +177,7 @@ def retrieve_documents(
     metadata_filter = build_metadata_filter(manual_id)
     raw_results = vector_store.query(
         query_text=request.query_text,
-        top_k=request.top_k or settings.rag_default_top_k,
+        top_k=request.top_k or DEFAULT_TOP_K,
         metadata_filter=metadata_filter,
     )
     return normalize_retrieved_documents(raw_results)

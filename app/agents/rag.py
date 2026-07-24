@@ -21,7 +21,7 @@ from app.services.rag_service import RetrievalRequest, retrieve_documents
 from app.services.vector_store_factory import get_vector_store
 
 
-def _build_query_text(state: SafetyState) -> str:
+def build_query_text(state: SafetyState) -> str:
     """State 정보로 검색 질의문을 구성한다.
 
     설비 유형·위험 등급·긴급 사유를 결합해 관련 조치·근거 문서가
@@ -79,7 +79,7 @@ def rag_agent(state: SafetyState) -> dict[str, Any]:
         request = RetrievalRequest(
             machine_id=machine_id,
             machine_type=machine_type,
-            query_text=_build_query_text(state),
+            query_text=build_query_text(state),
             # 앞단이 채웠으면 신뢰해 그대로 전달, 없으면 None → 서비스에서 폴백
             manual_id=state.get("manual_id"),
         )

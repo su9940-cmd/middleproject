@@ -8,7 +8,7 @@ Memory Agent의 계산 로직 유틸.
 
 from typing import Any
 
-from app.core.enums import AlertStatus, RiskLevel
+from app.core.enums import AlertStatus, ChecklistItemStatus, RiskLevel
 
 
 # 위험 상향 감지에 사용되는 순서. 인덱스가 클수록 위험도가 높다.
@@ -78,9 +78,9 @@ def partition_action_ids(
         action_id = item.get("action_id")
         if not action_id:
             continue
-        if status == "COMPLETED":
+        if status == ChecklistItemStatus.COMPLETED:
             completed.append(action_id)
-        elif status == "FAILED":
+        elif status == ChecklistItemStatus.FAILED:
             failed.append(action_id)
     return completed, failed
 

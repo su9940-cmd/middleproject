@@ -21,8 +21,21 @@ class FakeAlertRepository:
     def __init__(self, alerts: list[dict[str, Any]] | None = None) -> None:
         self._alerts = alerts or []
 
-    def list_by_machine(self, machine_id: str, limit: int = 10) -> list[dict[str, Any]]:
-        return [a for a in self._alerts if a["machine_id"] == machine_id][:limit]
+    def list_by_machine(
+        self,
+        machine_id: str,
+        limit: int = 10,
+        exclude_alert_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        return [
+            alert
+            for alert in self._alerts
+            if alert["machine_id"] == machine_id
+            and (
+                exclude_alert_id is None
+                or alert.get("alert_id") != exclude_alert_id
+            )
+        ][:limit]
 
 
 class FakeChecklistRepository:
@@ -56,7 +69,12 @@ class FakeMaintenanceRepository:
 class ExplodingAlertRepository:
     """실패 처리 테스트용. 어떤 종류의 예외든 MemoryLookupError로 래핑되는지 확인."""
 
-    def list_by_machine(self, machine_id: str, limit: int = 10) -> list[dict[str, Any]]:
+    def list_by_machine(
+        self,
+        machine_id: str,
+        limit: int = 10,
+        exclude_alert_id: str | None = None,
+    ) -> list[dict[str, Any]]:
         raise RuntimeError("DB 연결 실패")
 
 
@@ -108,6 +126,7 @@ class MemoryAgentHappyPathTest(unittest.TestCase):
             "failed_action_ids",
             "latest_worker_note",
             "maintenance_history",
+            "repeat_count",
             "is_risk_escalated",
             "is_repeat_limit_exceeded",
         }
@@ -121,6 +140,34 @@ class MemoryAgentHappyPathTest(unittest.TestCase):
         agent = _make_agent(alerts=alerts)
         ctx = agent({"machine_id": MACHINE, "risk_level": RiskLevel.CAUTION})["memory_context"]
         self.assertEqual(ctx["previous_alert_count"], 1)
+
+    def test_current_alert_is_excluded_from_history(self) -> None:
+        alerts = [
+            {
+                "machine_id": MACHINE,
+                "alert_id": "CURRENT",
+                "alert_status": AlertStatus.OPEN,
+                "risk_level": RiskLevel.EMERGENCY,
+            },
+            {
+                "machine_id": MACHINE,
+                "alert_id": "PREVIOUS",
+                "alert_status": AlertStatus.RESOLVED,
+                "risk_level": RiskLevel.CAUTION,
+            },
+        ]
+        agent = _make_agent(alerts=alerts)
+        ctx = agent(
+            {
+                "machine_id": MACHINE,
+                "alert_id": "CURRENT",
+                "risk_level": RiskLevel.EMERGENCY,
+            }
+        )["memory_context"]
+
+        self.assertEqual(ctx["previous_alert_count"], 1)
+        self.assertEqual(ctx["previous_risk_level"], RiskLevel.CAUTION)
+        self.assertTrue(ctx["is_risk_escalated"])
 
     def test_maintenance_history_is_forwarded_intact(self) -> None:
         maintenance = [
@@ -148,6 +195,7 @@ class MemoryAgentRepeatLimitTest(unittest.TestCase):
         ctx = agent(
             {"machine_id": MACHINE, "risk_level": RiskLevel.WARNING, "repeat_count": REPEAT_LIMIT_THRESHOLD}
         )["memory_context"]
+        self.assertEqual(ctx["repeat_count"], REPEAT_LIMIT_THRESHOLD)
         self.assertTrue(ctx["is_repeat_limit_exceeded"])
 
     def test_repeat_limit_triggered_by_unresolved_count(self) -> None:
