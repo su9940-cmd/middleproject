@@ -11,7 +11,6 @@ dependencies = [
     "pandas==2.3.3",
     # 진행률 표시 바
     "tqdm==4.67.1",
- 
     # LangChain 패키지
     "langchain==1.0.2",
     "langchain-core>=1.0.3,<2.0.0",
@@ -19,7 +18,6 @@ dependencies = [
     "langchain-community==0.4.1",
     "langchain-experimental==0.0.42",
     "langchain-pinecone>=0.2.0",
- 
     # 모델별 패키지
     "langchain-openai==1.0.2",
     "sentence-transformers==5.1.2",
@@ -31,9 +29,7 @@ dependencies = [
     "huggingface-hub>=0.28.0",
     "sentence-transformers>=3.0.0",
     "torch>=2.2.0",
-    "langchainhub>=0.1.21",    
-   
- 
+    "langchainhub>=0.1.21",
     # Loader 패키지
     "jq==1.10.0",
     "beautifulsoup4==4.14.2",
@@ -44,29 +40,27 @@ dependencies = [
     "tiktoken==0.12.0",
     "matplotlib==3.10.7",
     "docx2txt>=0.9",
- 
     # 환경 변수 관리
     "python-dotenv==1.2.1",
- 
     # 머신러닝 유틸리티
     "scikit-learn==1.7.2",
+<<<<<<< HEAD
+=======
     "joblib>=1.4.0",
     "pydantic>=2.0.0",
 
+>>>>>>> origin/integration
     # 벡터 데이터베이스
     "chromadb==1.3.2",
     "langchain-chroma==1.0.0",
-     "pinecone>=5.3.0",    
-
+    "pinecone>=5.3.0",
     # 벡터DB 패키지
     # PostgreSQL + pgvector
-    # pgvector 
+    # pgvector
     "psycopg2-binary==2.9.11",
     "langchain-postgres==0.0.16",
-
     # 평가 패키지
     "ragas==0.3.9",
-
     # UI 및 개발 환경
     "gradio>=5.0.0", # 최신 인터페이스 지원
     "streamlit>=1.41.0", # 최신 위젯 지원
