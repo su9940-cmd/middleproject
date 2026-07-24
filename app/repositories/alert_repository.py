@@ -52,6 +52,18 @@ class AlertRepository:
                 details={"alert_id": alert_id},
             ) from exc
 
+    async def get_by_id(self, alert_id: str) -> AlertORM | None:
+        """Fetch one alert row by its id, regardless of lifecycle status."""
+        try:
+            stmt = select(AlertORM).where(AlertORM.alert_id == alert_id)
+            result = await self.session.execute(stmt)
+            return result.scalar_one_or_none()
+        except Exception as exc:
+            raise DatabaseOperationError(
+                f"Failed to fetch alert {alert_id}: {exc}",
+                details={"alert_id": alert_id},
+            ) from exc
+
     async def get_active_alert_by_machine(self, machine_id: str) -> AlertORM | None:
         """Get currently unresolved alert for a specific machine."""
         try:

@@ -1,11 +1,14 @@
 """Integration tests for `app.graph.builder.build_safety_graph`.
 
-RAG/memory/action-draft/validator/notification/worker-interrupt/recheck
-nodes belong to roles A/B/C and don't exist yet, so `build_safety_graph`
-wires in stubs that raise `NotImplementedError` for those. The abnormal/
-emergency tests below assert on that stub being reached - once a role lands
-their real node, these tests should be updated to assert real behavior
-instead of the stub's exception.
+`rag_agent`/`memory_agent`/`action_draft_node`/`validator_agent` belong to
+roles A/B and don't exist yet, so `build_safety_graph` wires in stubs that
+raise `NotImplementedError` for those. The abnormal/emergency tests below
+assert on that stub being reached - once A/B land their real nodes, these
+tests should be updated to assert real behavior instead of the stub's
+exception. `send_immediate_alert`/`worker_interrupt`/`request_immediate_recheck`
+are role C's and are real (see `tests/unit/test_notification.py`,
+`tests/unit/test_worker_interrupt.py`, `tests/unit/test_immediate_recheck.py`,
+and the full-loop `tests/integration/test_worker_interrupt_flow.py`).
 """
 
 from __future__ import annotations

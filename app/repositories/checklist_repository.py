@@ -19,9 +19,52 @@ class ChecklistRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
+    async def get_by_id(self, checklist_id: str) -> ChecklistORM | None:
+        """Fetch one checklist row by id."""
+        try:
+            stmt = select(ChecklistORM).where(ChecklistORM.checklist_id == checklist_id)
+            result = await self.session.execute(stmt)
+            return result.scalar_one_or_none()
+        except Exception as exc:
+            raise DatabaseOperationError(
+                f"Failed to fetch checklist {checklist_id}: {exc}",
+                details={"checklist_id": checklist_id},
+            ) from exc
+
+    async def get_latest_by_alert(self, alert_id: str) -> ChecklistORM | None:
+        """Fetch the highest-`version` checklist generated for an alert, if any."""
+        try:
+            stmt = (
+                select(ChecklistORM)
+                .where(ChecklistORM.alert_id == alert_id)
+                .order_by(ChecklistORM.version.desc())
+                .limit(1)
+            )
+            result = await self.session.execute(stmt)
+            return result.scalar_one_or_none()
+        except Exception as exc:
+            raise DatabaseOperationError(
+                f"Failed to fetch latest checklist for alert {alert_id}: {exc}",
+                details={"alert_id": alert_id},
+            ) from exc
+
     async def save_checklist(self, checklist_data: dict[str, Any]) -> ChecklistORM:
-        """Save newly generated checklist from Validator Agent."""
+        """Save the checklist Validator Agent just generated.
+
+        Idempotent: `validator_agent` may run again on a resumed thread (see
+        `langgraph.types.interrupt`'s "re-executes the whole node" behavior
+        further downstream at `worker_interrupt`), so a second call with the
+        same `checklist_id` returns the already-saved row instead of
+        violating the primary key.
+        """
         checklist_id = checklist_data.get("checklist_id")
+        if not checklist_id:
+            raise DatabaseOperationError("Cannot save a checklist without checklist_id")
+
+        existing = await self.get_by_id(checklist_id)
+        if existing is not None:
+            return existing
+
         try:
             orm_obj = ChecklistORM(
                 checklist_id=checklist_id,

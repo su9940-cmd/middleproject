@@ -47,11 +47,39 @@ uv run pytest tests/ -q
     이미 OPEN/IN_PROGRESS/ESCALATED면 그대로 유지하고 repeat_count만 누적; ESCALATED는 관리자
     조치 없이는 자동으로 안 내려감. `memory_context` 기반의 "악화/반복초과" 에스컬레이션은
     memory_agent가 아직 없어서 미반영 — 나중에 추가해야 함.
-- tests/unit/test_backend.py, tests/unit/test_{predictive_agent,risk_policy,recovery_node,graph_routes,alert_lifecycle}.py,
-  tests/integration/{test_safety_graph,test_sensor_ingest_api}.py
-  : 42건 전부 통과. `test_sensor_ingest_api.py`는 실제 HTTP 요청 → DB 저장 → 재조회까지 왕복 검증.
+- app/services/notification_service.py, app/nodes/notification.py (`send_immediate_alert`)
+  : EMERGENCY 즉시알림. 실제 페이징/SMS/Slack 채널이 아직 없어서 `notification_service.send_alert`는
+    CRITICAL 레벨 로그로 갈음(교체 지점 하나로 격리). 발송 실패는 절대 raise하지 않고
+    `notification_status=FAILED`로만 보고 — raise하면 병렬로 도는 RAG/Memory/체크리스트 생성 경로가
+    `_with_error_handling`의 error_code 단락 로직에 걸려 같이 끊겨버림(계약 8절 명시 사항).
+- app/nodes/worker_interrupt.py (`worker_interrupt`), app/nodes/immediate_recheck.py (`request_immediate_recheck`)
+  : `worker_interrupt`는 `langgraph.types.interrupt()`로 그래프를 일시정지하고 `final_checklist`를
+    노출, `Command(resume=worker_response)`로만 재개됨 → `{"worker_response": ...}` 반환.
+    `request_immediate_recheck`는 계약대로 `alert_status=WAITING_RECHECK` + `recheck_requested_at` 반환.
+- app/api/worker_routes.py (`POST /worker/checklists/{checklist_id}/respond`)
+  : checklist_id → alert_id → thread_id(`{machine_id}:{alert_id}`) 역산 후
+    `graph.ainvoke(Command(resume=...), config=...)`로 재개. 재개 전 `graph.aget_state(...).next`에
+    `worker_interrupt`가 없으면(이미 응답 완료 등) 409로 거부. 재개 후 `save_worker_response` +
+    `save_alert_state`로 결과 영속화.
+- app/api/sensor_routes.py
+  : 그래프가 `worker_interrupt`에서 멈추면(`ainvoke` 결과에 `"__interrupt__"` 키가 생김) 그 시점의
+    `final_checklist`를 `ChecklistRepository.save_checklist`로 저장(재호출 대비 idempotent). 응답에
+    `awaiting_worker_response`/`checklist_id` 추가. `measurement_mode=IMMEDIATE_RECHECK` 요청은
+    계약대로 `recheck_reading_id`도 state에 채워서 넘김(이전엔 누락돼 있었음).
+- app/api/alert_routes.py
+  : `GET /alerts/{alert_id}/checklist` 추가(가장 최근 버전 체크리스트 조회 — `ChecklistRepository.get_latest_by_alert`).
+- app/repositories/{alert,checklist}_repository.py
+  : `AlertRepository.get_by_id`, `ChecklistRepository.{get_by_id,get_latest_by_alert}` 추가 — 위 재개
+    플로우가 checklist_id만 가지고 thread_id를 역산하는 데 필요.
+- tests/unit/test_backend.py, tests/unit/test_{predictive_agent,risk_policy,recovery_node,graph_routes,alert_lifecycle,notification,immediate_recheck,worker_interrupt,checklist_repository}.py,
+  tests/integration/{test_safety_graph,test_sensor_ingest_api,test_worker_interrupt_flow}.py
+  : 60건 전부 통과. `test_worker_interrupt_flow.py`는 rag_agent/memory_agent/action_draft_node/validator_agent
+    (아직 없는 A/B 담당 노드)를 `sys.modules`에 최소 가짜 구현으로 꽂아 넣고, 실제 HTTP 요청으로
+    EMERGENCY 접수 → 즉시알림 → 체크리스트 저장 → interrupt 정지 → 작업자 응답 → resume →
+    WAITING_RECHECK까지 왕복 전체를 검증.
 
 ## 다음 슬라이스 (아직 미구현)
-- alert_routes/worker_routes를 그래프 재개(worker_interrupt resume)와 연결
 - Memory Agent가 조회할 이력 쿼리(직전 체크리스트, 정비 이력 등)는 아직 리포지토리에 없음 — 필요해지면 추가
 - memory_agent가 생기면 alert_lifecycle_node의 에스컬레이션 조건에 "악화 추세"/"반복 한도 초과" 반영
+- 정비 요청(관리자 승인 필요) 초안 저장용 리포지토리/테이블은 아직 없음 — action_draft_node/validator_agent가
+  `requires_maintenance_request`를 실제로 채우기 시작하면 필요해질 것

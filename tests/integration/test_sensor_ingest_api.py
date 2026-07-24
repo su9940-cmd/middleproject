@@ -108,3 +108,30 @@ def test_existing_active_alert_is_reused_not_reminted(monkeypatch, client):
     # periodic-normal while an alert is OPEN (not yet MONITORING) -> left
     # unchanged per recovery_node's rules, not silently cleared to NONE.
     assert body["alert_status"] == AlertStatus.OPEN
+
+
+def test_immediate_recheck_reading_sets_recheck_reading_id_on_state(monkeypatch, client):
+    """Contract section 8: an IMMEDIATE_RECHECK reading must set `recheck_reading_id`
+    on the state handed to `predictive_agent`, not just `reading_id`."""
+
+    monkeypatch.setattr(
+        "app.services.ml_service.predict_risk_score",
+        lambda **kwargs: (0.01, "test-v1", _THRESHOLDS),
+    )
+
+    resp = client.post(
+        "/sensors/ingest",
+        json=_payload(
+            reading_id="RD-M0101-recheck1",
+            measurement_mode="IMMEDIATE_RECHECK",
+        ),
+    )
+    assert resp.status_code == 201
+    thread_id = resp.json()["thread_id"]
+
+    import main
+
+    snapshot = main.app.state.safety_graph.get_state(
+        config={"configurable": {"thread_id": thread_id}}
+    )
+    assert snapshot.values.get("recheck_reading_id") == "RD-M0101-recheck1"

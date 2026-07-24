@@ -16,11 +16,12 @@ from langgraph.graph.state import CompiledStateGraph
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_db_session
-from app.core.enums import AlertStatus
+from app.core.enums import AlertStatus, MeasurementMode
 from app.core.ids import build_thread_id, generate_alert_id
 from app.models.sensor import SensorReading
 from app.nodes.persistence import save_alert_state, save_sensor_reading
 from app.repositories.alert_repository import AlertRepository
+from app.repositories.checklist_repository import ChecklistRepository
 
 router = APIRouter(prefix="/sensors", tags=["Sensors"])
 
@@ -54,6 +55,8 @@ async def ingest_sensor_data(
         "measurement_mode": reading.measurement_mode,
         "sensor_reading": reading.model_dump(),
     }
+    if reading.measurement_mode == MeasurementMode.IMMEDIATE_RECHECK:
+        state["recheck_reading_id"] = reading.reading_id
     await save_sensor_reading(state)
 
     active_alert = await AlertRepository(session).get_active_alert_by_machine(reading.machine_id)
@@ -93,10 +96,21 @@ async def ingest_sensor_data(
     if result.get("alert_status") not in (None, AlertStatus.NONE):
         await save_alert_state(result)
 
+    # `"__interrupt__"` is set instead of the run reaching END whenever
+    # `worker_interrupt` pauses it (see `app.nodes.worker_interrupt`) - by
+    # then `validator_agent` has already produced `final_checklist`, so save
+    # it now rather than waiting on a node that never runs again this request.
+    is_awaiting_worker_response = "__interrupt__" in result
+    final_checklist = result.get("final_checklist")
+    if is_awaiting_worker_response and final_checklist:
+        await ChecklistRepository(session).save_checklist(final_checklist)
+
     return {
         "status": "success",
         "reading_id": reading.reading_id,
         "thread_id": thread_id,
         "risk_level": result.get("risk_level"),
         "alert_status": result.get("alert_status"),
+        "awaiting_worker_response": is_awaiting_worker_response,
+        "checklist_id": (final_checklist or {}).get("checklist_id"),
     }
