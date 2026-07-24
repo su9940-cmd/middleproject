@@ -27,6 +27,7 @@ class SafetyState(TypedDict, total=False):
     # Risk policy
     risk_level: str
     emergency_reasons: list[str]
+    risk_evidence: list[dict[str, Any]]
     policy_version: str
 
     # Alert lifecycle
@@ -45,6 +46,9 @@ class SafetyState(TypedDict, total=False):
 
     # Action and checklist outputs
     action_draft: dict[str, Any]
+    validation_status: str
+    validation_feedback: list[dict[str, Any]]
+    validation_attempts: int
     final_checklist: dict[str, Any]
 
     # Immediate alert

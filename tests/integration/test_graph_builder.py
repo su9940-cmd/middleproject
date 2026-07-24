@@ -2,6 +2,7 @@
 
 import unittest
 from collections.abc import Callable
+from dataclasses import replace
 from typing import Any
 
 from langgraph.checkpoint.memory import InMemorySaver
@@ -148,6 +149,45 @@ class GraphBuilderIntegrationTest(unittest.TestCase):
         self.assertIn("validator", self.events)
         self.assertIn("worker_interrupt", self.events)
         self.assertEqual(result["notification_status"], "SENT")
+
+    def test_validator_feedback_loops_once_then_passes(self) -> None:
+        dependencies = self._dependencies(RiskLevel.WARNING)
+        validation_calls = 0
+
+        def action(state: dict) -> dict[str, Any]:
+            self.events.append("action")
+            if state.get("validation_feedback"):
+                self.assertEqual(state["validation_feedback"][0]["code"], "UNSUPPORTED")
+            return {"action_draft": {"checklist_id": "CL-TEST", "items": []}}
+
+        def validator(state: dict) -> dict[str, Any]:
+            nonlocal validation_calls
+            validation_calls += 1
+            self.events.append("validator")
+            if validation_calls == 1:
+                return {
+                    "validation_status": "REVISE",
+                    "validation_feedback": [{"code": "UNSUPPORTED"}],
+                    "validation_attempts": 1,
+                }
+            return {
+                "validation_status": "PASSED",
+                "validation_feedback": [],
+                "final_checklist": state["action_draft"],
+            }
+
+        graph = build_safety_graph(
+            replace(
+                dependencies,
+                action_draft_node=action,
+                validator_agent=validator,
+            ),
+            checkpointer=InMemorySaver(),
+        )
+        graph.invoke(self._initial_state(), graph_config("M-0101:AL-REVISION"))
+
+        self.assertEqual(self.events.count("action"), 2)
+        self.assertEqual(self.events.count("validator"), 2)
 
     def test_graph_config_rejects_empty_thread_id(self) -> None:
         with self.assertRaises(ValueError):

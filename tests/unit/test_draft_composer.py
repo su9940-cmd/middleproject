@@ -1,7 +1,4 @@
-"""draft_composer 테스트 - 4개 안전장치 검증.
-
-Fake LLM 클라이언트로 LLM 응답을 제어하여 각 안전장치를 개별 검증한다.
-"""
+"""Grounded draft composer tests."""
 
 import json
 import unittest
@@ -11,216 +8,175 @@ from app.core.enums import RiskLevel
 
 
 class FakeLLMClient:
-    """미리 정의된 응답을 반환하는 fake LLM."""
-
     def __init__(self, response) -> None:
-        self._response = response
-        self.last_system_prompt: str | None = None
-        self.last_user_prompt: str | None = None
+        self.response = response
+        self.last_user_prompt = None
 
-    def generate_structured(self, *, system_prompt: str, user_prompt: str, response_schema: type) -> str:
-        self.last_system_prompt = system_prompt
+    def generate_structured(self, *, system_prompt, user_prompt, response_schema):
         self.last_user_prompt = user_prompt
-        if isinstance(self._response, Exception):
-            raise self._response
-        return self._response
+        if isinstance(self.response, Exception):
+            raise self.response
+        return self.response
 
 
-def _doc(source_id="SOP-R-014", document_type="SOP", title="냉각수", content="밸브 A-3"):
+def _doc(
+    source_id="pump_safety_manual",
+    document_type="sop",
+    section="4.3",
+    title="흡입 배관 확인",
+    content="흡입 밸브 개도와 배관 막힘 여부를 확인한다.",
+):
     return {
         "source_id": source_id,
         "document_type": document_type,
+        "section": section,
         "title": title,
         "content": content,
+        "manual_version": "1.5",
     }
 
 
-def _llm_response(actions):
-    return json.dumps({"summary": "테스트 요약", "actions": actions})
-
-
-def _llm_action(source_id="SOP-R-014", action_id=None, **overrides):
-    action = {
-        "action_id": action_id or source_id,
-        "title": "냉각수 확인",
-        "description": "밸브 A-3 확인",
+def _action(source_key="pump_safety_manual::4.3", **overrides):
+    value = {
+        "title": "흡입 배관 확인",
+        "instruction": "흡입 밸브 개도와 배관 막힘 여부를 확인한다.",
         "priority": "HIGH",
         "required": True,
-        "source_ids": [source_id],
+        "source_keys": [source_key],
         "previously_failed": False,
     }
-    action.update(overrides)
-    return action
+    value.update(overrides)
+    return value
 
 
-class ComposeLlmDraftHappyPathTest(unittest.TestCase):
-    def test_valid_llm_response_produces_actions(self) -> None:
-        llm = FakeLLMClient(_llm_response([_llm_action()]))
-        actions, summary, used_fallback = compose_llm_draft(
-            llm=llm,
-            documents=[_doc()],
-            memory_context={},
-            risk_level=RiskLevel.WARNING,
-            emergency_reasons=[],
+def _response(actions=None):
+    return json.dumps(
+        {"summary": "펌프 저압 대응", "actions": actions or [_action()]},
+        ensure_ascii=False,
+    )
+
+
+def _compose(llm, documents=None, memory=None, **kwargs):
+    return compose_llm_draft(
+        llm=llm,
+        documents=documents if documents is not None else [_doc()],
+        memory_context=memory or {},
+        risk_level=kwargs.pop("risk_level", RiskLevel.WARNING),
+        emergency_reasons=kwargs.pop("emergency_reasons", []),
+        **kwargs,
+    )
+
+
+class ComposeHappyPathTest(unittest.TestCase):
+    def test_valid_response_gets_server_ids_and_exact_citation(self) -> None:
+        items, summary, fallback, references = _compose(FakeLLMClient(_response()))
+
+        self.assertEqual(summary, "펌프 저압 대응")
+        self.assertFalse(fallback)
+        self.assertEqual(references, [])
+        self.assertTrue(items[0]["action_id"].startswith("ACTION-"))
+        self.assertTrue(items[0]["checklist_item_id"].startswith("ITEM-"))
+        self.assertEqual(
+            items[0]["citations"][0]["source_excerpt"],
+            "흡입 밸브 개도와 배관 막힘 여부를 확인한다.",
         )
-        self.assertEqual(len(actions), 1)
-        self.assertFalse(used_fallback)
-        self.assertEqual(summary, "테스트 요약")
 
-    def test_llm_action_fields_forwarded(self) -> None:
-        llm = FakeLLMClient(_llm_response([_llm_action()]))
-        actions, _, _ = compose_llm_draft(
-            llm=llm, documents=[_doc()], memory_context={}, risk_level=RiskLevel.WARNING, emergency_reasons=[],
+    def test_same_sources_and_title_produce_stable_ids(self) -> None:
+        first = _compose(FakeLLMClient(_response()))[0][0]
+        second = _compose(FakeLLMClient(_response()))[0][0]
+        self.assertEqual(first["action_id"], second["action_id"])
+        self.assertEqual(first["checklist_item_id"], second["checklist_item_id"])
+
+
+class ComposeGroundingGuardTest(unittest.TestCase):
+    def test_unknown_source_key_is_replaced_by_sop_fallback(self) -> None:
+        response = _response([_action(source_key="FAKE::1")])
+        items, _, fallback, _ = _compose(FakeLLMClient(response))
+        self.assertTrue(fallback)
+        self.assertEqual(items[0]["citations"][0]["source_id"], "pump_safety_manual")
+
+    def test_schema_failure_or_llm_failure_uses_sop_fallback(self) -> None:
+        for response in ("not-json", RuntimeError("down")):
+            with self.subTest(response=type(response).__name__):
+                items, _, fallback, _ = _compose(FakeLLMClient(response))
+                self.assertTrue(fallback)
+                self.assertTrue(items[0]["required"])
+
+    def test_completed_action_is_not_repeated(self) -> None:
+        first_item = _compose(FakeLLMClient(_response()))[0][0]
+        items, _, _, _ = _compose(
+            FakeLLMClient(_response()),
+            memory={"completed_action_ids": [first_item["action_id"]]},
         )
-        action = actions[0]
-        self.assertGreaterEqual(
-            set(action.keys()),
-            {"action_id", "title", "description", "priority", "required", "source_ids", "previously_failed"},
+        self.assertEqual(items, [])
+
+    def test_failed_action_is_marked_by_server(self) -> None:
+        first_item = _compose(FakeLLMClient(_response()))[0][0]
+        items, _, _, _ = _compose(
+            FakeLLMClient(_response()),
+            memory={"failed_action_ids": [first_item["action_id"]]},
         )
+        self.assertTrue(items[0]["previously_failed"])
 
 
-class ComposeLlmDraftGuard1Test(unittest.TestCase):
-    """안전장치 1: RAG 원문 벗어난 창작 금지."""
+class ComposeDocumentTypeTest(unittest.TestCase):
+    def test_fallback_uses_lowercase_sop_as_required_action(self) -> None:
+        items, _, fallback, _ = _compose(FakeLLMClient(RuntimeError("down")))
+        self.assertTrue(fallback)
+        self.assertTrue(items[0]["required"])
 
-    def test_action_with_hallucinated_source_id_dropped(self) -> None:
-        """LLM이 실제 문서에 없는 source_id를 만들어내면 제외해야 함."""
-        llm = FakeLLMClient(_llm_response([
-            _llm_action(source_id="SOP-R-014"),
-            _llm_action(source_id="SOP-FAKE-999", action_id="FAKE"),
-        ]))
-        actions, _, used_fallback = compose_llm_draft(
-            llm=llm, documents=[_doc()], memory_context={}, risk_level=RiskLevel.WARNING, emergency_reasons=[],
+    def test_law_is_reference_not_fallback_action(self) -> None:
+        documents = [
+            _doc(),
+            _doc(
+                source_id="law_art92",
+                document_type="law",
+                section="제92조",
+                title="운전정지",
+                content="정비 작업 시 필요한 안전조치를 검토한다.",
+            ),
+        ]
+        items, _, fallback, references = _compose(
+            FakeLLMClient(RuntimeError("down")), documents=documents
         )
-        self.assertEqual(len(actions), 1)
-        self.assertEqual(actions[0]["source_ids"], ["SOP-R-014"])
-        self.assertFalse(used_fallback)
+        self.assertTrue(fallback)
+        self.assertEqual(len(items), 1)
+        self.assertEqual(references[0]["source_id"], "law_art92")
 
-    def test_all_hallucinated_falls_back_to_documents(self) -> None:
-        """LLM 조치가 전부 환각이면 fallback으로 규칙 기반 조립."""
-        llm = FakeLLMClient(_llm_response([_llm_action(source_id="SOP-FAKE", action_id="FAKE")]))
-        actions, _, used_fallback = compose_llm_draft(
-            llm=llm, documents=[_doc()], memory_context={}, risk_level=RiskLevel.WARNING, emergency_reasons=[],
+    def test_law_only_llm_action_is_rejected(self) -> None:
+        law = _doc(
+            source_id="law_art92",
+            document_type="law",
+            section="제92조",
+            title="운전정지",
+            content="정비 작업 시 필요한 안전조치를 검토한다.",
         )
-        self.assertTrue(used_fallback)
-        self.assertEqual(len(actions), 1)
-        self.assertEqual(actions[0]["source_ids"], ["SOP-R-014"])
-
-
-class ComposeLlmDraftGuard2Test(unittest.TestCase):
-    """안전장치 2: source_id 가드 (스키마 + 재검증)."""
-
-    def test_action_with_empty_source_ids_rejected_by_schema(self) -> None:
-        """LLM이 source_ids를 빈 배열로 반환하면 Pydantic 검증 실패 -> fallback."""
-        llm = FakeLLMClient(_llm_response([_llm_action(source_ids=[])]))
-        _, _, used_fallback = compose_llm_draft(
-            llm=llm, documents=[_doc()], memory_context={}, risk_level=RiskLevel.WARNING, emergency_reasons=[],
+        response = _response([_action(source_key="law_art92::제92조")])
+        items, _, fallback, references = _compose(
+            FakeLLMClient(response), documents=[law]
         )
-        self.assertTrue(used_fallback)
+        self.assertTrue(fallback)
+        self.assertEqual(items, [])
+        self.assertEqual(references[0]["source_id"], "law_art92")
 
 
-class ComposeLlmDraftGuard3Test(unittest.TestCase):
-    """안전장치 3: Pydantic 구조화 출력 강제."""
-
-    def test_malformed_json_triggers_fallback(self) -> None:
-        llm = FakeLLMClient("not a json {{{")
-        _, _, used_fallback = compose_llm_draft(
-            llm=llm, documents=[_doc()], memory_context={}, risk_level=RiskLevel.WARNING, emergency_reasons=[],
-        )
-        self.assertTrue(used_fallback)
-
-    def test_schema_violation_triggers_fallback(self) -> None:
-        """LLM이 잘못된 priority 값을 반환하면 스키마 위반 -> fallback."""
-        llm = FakeLLMClient(_llm_response([_llm_action(priority="URGENT")]))
-        _, _, used_fallback = compose_llm_draft(
-            llm=llm, documents=[_doc()], memory_context={}, risk_level=RiskLevel.WARNING, emergency_reasons=[],
-        )
-        self.assertTrue(used_fallback)
-
-    def test_llm_exception_triggers_fallback(self) -> None:
-        """LLM 호출 자체가 실패해도 fallback으로 조치를 만들 수 있어야 함."""
-        llm = FakeLLMClient(RuntimeError("LLM API down"))
-        _, _, used_fallback = compose_llm_draft(
-            llm=llm, documents=[_doc()], memory_context={}, risk_level=RiskLevel.WARNING, emergency_reasons=[],
-        )
-        self.assertTrue(used_fallback)
-
-
-class ComposeLlmDraftMemoryContextTest(unittest.TestCase):
-    def test_completed_action_ids_excluded_from_llm_output(self) -> None:
-        llm = FakeLLMClient(_llm_response([
-            _llm_action(source_id="SOP-R-014", action_id="SOP-R-014"),
-            _llm_action(source_id="SOP-R-015", action_id="SOP-R-015"),
-        ]))
-        docs = [_doc(source_id="SOP-R-014"), _doc(source_id="SOP-R-015", title="다른")]
-        memory = {"completed_action_ids": ["SOP-R-014"]}
-
-        actions, _, _ = compose_llm_draft(
-            llm=llm, documents=docs, memory_context=memory, risk_level=RiskLevel.CAUTION, emergency_reasons=[],
-        )
-        self.assertEqual([a["action_id"] for a in actions], ["SOP-R-015"])
-
-    def test_previously_failed_flag_forced_by_memory(self) -> None:
-        """LLM이 previously_failed=False로 반환해도 memory에 있으면 True로 강제."""
-        llm = FakeLLMClient(_llm_response([_llm_action(previously_failed=False)]))
-        memory = {"failed_action_ids": ["SOP-R-014"]}
-
-        actions, _, _ = compose_llm_draft(
-            llm=llm, documents=[_doc()], memory_context=memory, risk_level=RiskLevel.WARNING, emergency_reasons=[],
-        )
-        self.assertTrue(actions[0]["previously_failed"])
-
-
-class ComposeLlmDraftFallbackTest(unittest.TestCase):
-    def test_fallback_preserves_source_id_traceability(self) -> None:
-        llm = FakeLLMClient("invalid json")
-        docs = [_doc(source_id="SOP-1"), _doc(source_id="SOP-2", title="다른")]
-
-        actions, _, used_fallback = compose_llm_draft(
-            llm=llm, documents=docs, memory_context={}, risk_level=RiskLevel.WARNING, emergency_reasons=[],
-        )
-        self.assertTrue(used_fallback)
-        ids = {a["action_id"] for a in actions}
-        self.assertEqual(ids, {"SOP-1", "SOP-2"})
-
-    def test_fallback_skips_documents_without_source_id(self) -> None:
-        llm = FakeLLMClient(RuntimeError("down"))
-        docs = [_doc(source_id=None), _doc(source_id="SOP-VALID")]
-
-        actions, _, _ = compose_llm_draft(
-            llm=llm, documents=docs, memory_context={}, risk_level=RiskLevel.CAUTION, emergency_reasons=[],
-        )
-        self.assertEqual(len(actions), 1)
-        self.assertEqual(actions[0]["action_id"], "SOP-VALID")
-
-
-class ComposeLlmDraftPromptTest(unittest.TestCase):
-    def test_prompt_includes_completed_and_failed_action_hints(self) -> None:
-        llm = FakeLLMClient(_llm_response([_llm_action()]))
-        memory = {
-            "completed_action_ids": ["OLD-1"],
-            "failed_action_ids": ["OLD-2"],
-            "latest_worker_note": "냉각수 부족 의심",
-        }
-        compose_llm_draft(
-            llm=llm, documents=[_doc()], memory_context=memory,
-            risk_level=RiskLevel.EMERGENCY, emergency_reasons=["Temp>=42"],
+class ComposeRevisionPromptTest(unittest.TestCase):
+    def test_prompt_contains_current_problem_and_validator_feedback(self) -> None:
+        llm = FakeLLMClient(_response())
+        _compose(
+            llm,
+            machine_id="M-0104",
+            machine_type="PUMP",
+            sensor_reading={"Pressure": 8.0, "Vibration": 4.8},
+            ml_risk_score=0.72,
+            risk_evidence=[{"sensor": "Vibration", "reason": "고진동"}],
+            validation_feedback=[{"code": "UNSUPPORTED", "message": "근거 불충분"}],
+            previous_draft={"checklist_id": "CL-OLD"},
+            validation_attempts=1,
         )
         prompt = llm.last_user_prompt
-        self.assertIn("OLD-1", prompt)
-        self.assertIn("OLD-2", prompt)
-        self.assertIn("냉각수 부족 의심", prompt)
-        self.assertIn("Temp>=42", prompt)
-        self.assertIn("EMERGENCY", prompt)
-
-    def test_prompt_only_includes_documents_with_source_id(self) -> None:
-        llm = FakeLLMClient(_llm_response([_llm_action()]))
-        docs = [_doc(source_id=None, title="근거없음"), _doc(source_id="VALID")]
-        compose_llm_draft(
-            llm=llm, documents=docs, memory_context={},
-            risk_level=RiskLevel.CAUTION, emergency_reasons=[],
-        )
-        self.assertNotIn("근거없음", llm.last_user_prompt)
-        self.assertIn("VALID", llm.last_user_prompt)
+        for expected in ("M-0104", "PUMP", "Vibration", "0.72", "근거 불충분", "CL-OLD"):
+            self.assertIn(expected, prompt)
 
 
 if __name__ == "__main__":
