@@ -484,8 +484,94 @@
     return new Date().toISOString().replace(/\.\d+Z$/, "Z");
   }
 
+  var API_BASE = window.location.protocol === "file:"
+    ? "http://127.0.0.1:8000"
+    : window.location.origin;
+
+  async function apiRequest(path, options) {
+    var response = await fetch(API_BASE + path, Object.assign({
+      headers: { "Content-Type": "application/json" }
+    }, options || {}));
+    var body = await response.json().catch(function () { return {}; });
+    if (!response.ok) {
+      var message = body.message || body.detail || ("HTTP " + response.status);
+      throw new Error(message);
+    }
+    return body;
+  }
+
   function addTrace(method, path, req, res) {
     state.traces.push({ method: method, path: path, req: req, res: res });
+  }
+
+  function resetChecklistState() {
+    state.itemStatuses = {};
+    (incident.final_checklist.items || []).forEach(function (it) {
+      state.itemStatuses[it.checklist_item_id] = "PENDING";
+    });
+  }
+
+  async function bootstrapLiveIncident() {
+    var payload = {
+      reading_id: "RD-M0101-UI-" + Date.now(),
+      machine_id: "M-0101",
+      machine_type: "REACTOR",
+      measured_at: new Date().toISOString(),
+      measurement_mode: "PERIODIC",
+      temperature: 50.0,
+      pressure: 1.0,
+      humidity: 40.0,
+      vibration: 0.1,
+      speed: 1000.0,
+      age: 2,
+      service_days: 90,
+      gas: 0.0,
+      sparks: 0,
+      shift: "Day",
+      experience: "Senior",
+      training: "Yes"
+    };
+    var ingest = await apiRequest("/sensors/ingest", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+    addTrace("POST", "/sensors/ingest", payload, ingest);
+
+    var liveAlertId = ingest.thread_id.split(":").slice(1).join(":");
+    var alert = await apiRequest("/alerts/active/" + encodeURIComponent(payload.machine_id));
+    addTrace("GET", "/alerts/active/" + payload.machine_id, null, alert);
+    var checklist = await apiRequest("/alerts/" + encodeURIComponent(liveAlertId) + "/checklist");
+    addTrace("GET", "/alerts/" + liveAlertId + "/checklist", null, checklist);
+
+    alertId = liveAlertId;
+    checklistId = checklist.checklist_id;
+    threadId = ingest.thread_id;
+    incident = {
+      machine_id: alert.machine_id,
+      machine_type: String(alert.machine_type),
+      measured_at: payload.measured_at,
+      risk_level: String(alert.risk_level),
+      ml_risk_score: null,
+      alert_id: alert.alert_id,
+      emergency_reasons: alert.emergency_reasons || [],
+      notification_status: String(alert.notification_status || "NOT_REQUIRED"),
+      immediate_alert_sent_at: null,
+      final_checklist: checklist,
+      maintenance_request: null
+    };
+
+    var pending = await apiRequest("/maintenance-requests/pending");
+    var request = pending.find(function (item) { return item.alertId === alert.alert_id || item.alert_id === alert.alert_id; });
+    if (request) {
+      maintenanceRequestId = request.maintenanceRequestId || request.maintenance_request_id;
+      incident.maintenance_request = {
+        title: request.title,
+        priority: request.priority,
+        recommendation: request.recommendation
+      };
+    }
+    resetChecklistState();
+    render();
   }
 
   function riskBadgeClass(level) {
@@ -557,6 +643,7 @@
           '<div class="done-state">' +
             '<span class="badge success">제출 완료</span>' +
             '<p>작업자 응답이 저장되고, 설비는 즉시 재측정 대기(WAITING_RECHECK) 상태로 전환됐습니다.</p>' +
+            '<button class="primary" style="margin-top:14px" id="recheck-submit">즉시 재측정 전송</button>' +
             '<button class="primary" style="margin-top:14px" data-action="go-manager">관리자 검토 화면으로 →</button>' +
           "</div>" +
         "</div>";
@@ -716,7 +803,7 @@
       approved: false,
       traces: []
     };
-    incident.final_checklist.items.forEach(function (it) { state.itemStatuses[it.checklist_item_id] = "PENDING"; });
+    resetChecklistState();
     render();
   }
 
@@ -758,54 +845,97 @@
 
   document.getElementById("stage").addEventListener("click", function (e) {
     if (e.target.id === "worker-submit") {
-      var submittedAt = nowIso();
-      var responseId = "RP-" + alertId + "-" + Date.now();
-      var req = {
-        response_id: responseId,
-        alert_id: alertId,
-        submitted_at: submittedAt,
-        item_statuses: Object.assign({}, state.itemStatuses),
-        note: state.note
-      };
-      var res = {
-        status: "success",
-        checklist_id: checklistId,
-        thread_id: threadId,
-        alert_status: "WAITING_RECHECK",
-        recheck_requested_at: nowIso()
-      };
-      addTrace("POST", "/worker/checklists/" + checklistId + "/respond", req, res);
-      state.workerResponse = { note: state.note, submitted_at: submittedAt };
-      state.submitted = true;
-      render();
+      (async function () {
+        var submittedAt = nowIso();
+        var path = "/worker/checklists/" + encodeURIComponent(checklistId) + "/respond";
+        var req = {
+          response_id: "RP-" + alertId + "-" + Date.now(),
+          alert_id: alertId,
+          submitted_at: submittedAt,
+          item_statuses: Object.assign({}, state.itemStatuses),
+          note: state.note
+        };
+        e.target.disabled = true;
+        try {
+          var res = await apiRequest(path, { method: "POST", body: JSON.stringify(req) });
+          addTrace("POST", path, req, res);
+          state.workerResponse = { note: state.note, submitted_at: submittedAt };
+          state.submitted = true;
+          incident.alert_status = res.alert_status;
+          render();
+        } catch (error) {
+          addTrace("POST", path, req, { error: error.message });
+          e.target.disabled = false;
+          window.alert(error.message);
+        }
+      })();
+      return;
     }
     if (e.target.id === "manager-approve") {
-      var decision = state.maintenanceDecision === "rejected" ? "REJECTED" : "APPROVED";
-      var req2 = {
-        maintenanceDecision: decision,
-        decidedBy: "안전관리자",
-        comment: state.comment || null
-      };
-      var res2 = {
-        maintenanceRequestId: maintenanceRequestId,
-        alertId: alertId,
-        machineId: incident.machine_id,
-        machineType: incident.machine_type,
-        title: incident.maintenance_request.title,
-        recommendation: incident.maintenance_request.recommendation,
-        priority: incident.maintenance_request.priority,
-        status: decision,
-        decidedBy: "안전관리자",
-        decisionComment: state.comment || null,
-        decidedAt: nowIso(),
-        createdAt: "2026-07-23T10:15:05Z"
-      };
-      addTrace("POST", "/maintenance-requests/" + maintenanceRequestId + "/decision", req2, res2);
-      state.approved = true;
-      render();
+      (async function () {
+        var decision = state.maintenanceDecision === "rejected" ? "REJECTED" : "APPROVED";
+        var path = "/maintenance-requests/" + encodeURIComponent(maintenanceRequestId) + "/decision";
+        var req2 = {
+          maintenanceDecision: decision,
+          decidedBy: "안전관리자",
+          comment: state.comment || null
+        };
+        e.target.disabled = true;
+        try {
+          var res2 = await apiRequest(path, { method: "POST", body: JSON.stringify(req2) });
+          addTrace("POST", path, req2, res2);
+          state.approved = true;
+          render();
+        } catch (error) {
+          addTrace("POST", path, req2, { error: error.message });
+          e.target.disabled = false;
+          window.alert(error.message);
+        }
+      })();
+      return;
+    }
+    if (e.target.id === "recheck-submit") {
+      (async function () {
+        var payload = {
+          reading_id: "RD-M0101-UI-RECHECK-" + Date.now(),
+          machine_id: incident.machine_id,
+          machine_type: incident.machine_type,
+          measured_at: new Date().toISOString(),
+          measurement_mode: "IMMEDIATE_RECHECK",
+          temperature: 25.0,
+          pressure: 1.0,
+          humidity: 40.0,
+          vibration: 0.1,
+          speed: 1000.0,
+          age: 2,
+          service_days: 90,
+          gas: 0.0,
+          sparks: 0,
+          shift: "Day",
+          experience: "Senior",
+          training: "Yes"
+        };
+        e.target.disabled = true;
+        try {
+          var result = await apiRequest("/sensors/ingest", { method: "POST", body: JSON.stringify(payload) });
+          addTrace("POST", "/sensors/ingest", payload, result);
+          incident.risk_level = result.risk_level;
+          incident.alert_status = result.alert_status;
+          window.alert("재측정 결과: " + result.risk_level);
+          render();
+        } catch (error) {
+          addTrace("POST", "/sensors/ingest", payload, { error: error.message });
+          e.target.disabled = false;
+          window.alert(error.message);
+        }
+      })();
     }
   });
 
   render();
+  bootstrapLiveIncident().catch(function (error) {
+    addTrace("ERROR", "/sensors/ingest", null, { error: error.message });
+    render();
+  });
 })();
 </script>

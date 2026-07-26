@@ -3,6 +3,8 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -42,10 +44,24 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Allow the standalone demo HTML to call the local API during development.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://127.0.0.1:8000",
+        "http://localhost:8000",
+        "null",  # file:// demo opened directly in a browser
+    ],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.include_router(sensor_routes.router)
 app.include_router(alert_routes.router)
 app.include_router(worker_routes.router)
 app.include_router(maintenance_routes.router)
+app.mount("/demo", StaticFiles(directory="demo", html=True), name="demo")
 
 
 @app.exception_handler(ApplicationError)
