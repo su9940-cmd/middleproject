@@ -21,6 +21,24 @@ MACHINE_ID_TYPE_MAP = {
     "M-0104": MachineType.PUMP,
 }
 
+# Mapping from API/state names to the columns used by the trained pipeline.
+MODEL_COLUMN_MAP = {
+    "temperature": "Temp",
+    "pressure": "Pressure",
+    "humidity": "Humidity",
+    "vibration": "Vibration",
+    "speed": "Speed",
+    "age": "Age",
+    "service_days": "Service_Days",
+    "gas": "Gas",
+    "sparks": "Sparks",
+    "shift": "Shift",
+    "experience": "Exp",
+    "training": "Training",
+    "machine_id": "machine_id",
+    "machine_type": "machine_type",
+}
+
 
 class SensorReading(BaseModel):
     """One periodic or immediate-recheck reading for a single machine."""

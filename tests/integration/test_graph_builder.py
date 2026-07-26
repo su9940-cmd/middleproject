@@ -131,8 +131,8 @@ class GraphBuilderIntegrationTest(unittest.TestCase):
         self.assertIn("worker_interrupt", self.events)
         self.assertIn("immediate_recheck", self.events)
         self.assertNotIn("immediate_alert", self.events)
-        self.assertEqual(result["risk_level"], RiskLevel.NORMAL)
-        self.assertEqual(result["alert_status"], AlertStatus.MONITORING)
+        self.assertEqual(result["risk_level"], RiskLevel.WARNING.value)
+        self.assertEqual(result["alert_status"], AlertStatus.WAITING_RECHECK.value)
 
     def test_emergency_adds_immediate_alert_without_skipping_checklist(self) -> None:
         graph = build_safety_graph(

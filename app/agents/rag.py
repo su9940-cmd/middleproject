@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from app.core.exceptions import RAGRetrievalError
 from app.graph.state import SafetyState
-from app.services.rag_service import RetrievalRequest, retrieve_documents
+from app.services.rag_service import RetrievalRequest, resolve_manual_id, retrieve_documents
 from app.services.vector_store_factory import get_vector_store
 
 
@@ -58,7 +59,18 @@ def rag_agent(state: SafetyState) -> dict[str, Any]:
         )
         documents = retrieve_documents(get_vector_store(), request)
     except Exception as exc:  # Provider-specific vector DB errors are normalized here.
-        return _error(f"document retrieval failed: {exc}")
+        # The local API demo may be started before Chroma indexing.  Use the
+        # checked-in SOP/law files as a deterministic fallback; a production
+        # deployment should index them and use the vector store path.
+        try:
+            fallback_manual_id = resolve_manual_id(
+                request.machine_id, request.machine_type, request.manual_id
+            )
+        except ValueError:
+            fallback_manual_id = ""
+        documents = _load_local_documents(fallback_manual_id)
+        if not documents:
+            return _error(f"document retrieval failed: {exc}")
 
     if not any(
         str(document.get("document_type") or "").lower() == "sop"
@@ -96,3 +108,38 @@ def _error(message: str) -> dict[str, Any]:
         "failed_node": "rag_agent",
         "retrieved_documents": [],
     }
+
+
+def _load_local_documents(manual_id: str) -> list[dict[str, Any]]:
+    """Load the machine SOP and a small law reference set for local demos."""
+
+    project_root = Path(__file__).resolve().parents[2]
+    documents: list[dict[str, Any]] = []
+    sop_path = project_root / "data" / "sop" / f"{manual_id}.md"
+    if sop_path.is_file():
+        documents.append(
+            {
+                "source_id": manual_id,
+                "document_type": "sop",
+                "title": sop_path.stem,
+                "section": None,
+                "content": sop_path.read_text(encoding="utf-8"),
+                "relevance_score": 1.0,
+                "manual_version": None,
+            }
+        )
+
+    law_dir = project_root / "data" / "laws"
+    for law_path in sorted(law_dir.glob("*.md"))[:2]:
+        documents.append(
+            {
+                "source_id": law_path.stem,
+                "document_type": "law",
+                "title": law_path.stem,
+                "section": None,
+                "content": law_path.read_text(encoding="utf-8"),
+                "relevance_score": 0.5,
+                "manual_version": None,
+            }
+        )
+    return documents

@@ -85,3 +85,12 @@ class ChecklistItemStatus(StrEnum):
     COMPLETED = "COMPLETED"
     SKIPPED = "SKIPPED"
     FAILED = "FAILED"
+
+
+class MaintenanceRequestStatus(StrEnum):
+    """Manager decision state for a maintenance request draft."""
+
+    PENDING = "PENDING"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+    DEFERRED = "DEFERRED"

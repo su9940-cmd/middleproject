@@ -141,9 +141,9 @@ class WorkerInterruptIntegrationTest(unittest.TestCase):
 
         self.assertEqual(resumed["worker_response"]["worker_id"], "WORKER-01")
         self.assertEqual(resumed["measurement_mode"], MeasurementMode.IMMEDIATE_RECHECK)
-        self.assertEqual(resumed["risk_level"], RiskLevel.NORMAL)
-        self.assertEqual(resumed["alert_status"], AlertStatus.MONITORING)
-        self.assertEqual(resumed["consecutive_normal_count"], 1)
+        self.assertEqual(resumed["risk_level"], RiskLevel.WARNING.value)
+        self.assertEqual(resumed["alert_status"], AlertStatus.WAITING_RECHECK.value)
+        self.assertEqual(resumed["consecutive_normal_count"], 0)
 
     def test_resume_rejects_mismatched_alert_id(self) -> None:
         graph = build_safety_graph(

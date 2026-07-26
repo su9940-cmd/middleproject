@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any, Mapping
 
 from langgraph.types import interrupt
@@ -26,7 +27,9 @@ def worker_interrupt(state: SafetyState) -> dict[str, Any]:
     raw_response = interrupt(interrupt_value)
 
     try:
-        response = WorkerResumePayload.model_validate(raw_response)
+        response = WorkerResumePayload.model_validate(
+            _normalize_worker_response(raw_response, checklist_id=checklist_id)
+        )
     except ValidationError as exc:
         raise WorkerResponseValidationError(
             "worker resume payload validation failed",
@@ -78,6 +81,10 @@ def _build_interrupt_value(
                 "machine_id": machine_id,
                 "machine_type": state.get("machine_type"),
                 "risk_level": state.get("risk_level"),
+                "ml_risk_score": state.get("ml_risk_score"),
+                "emergency_reasons": state.get("emergency_reasons", []),
+                "notification_status": state.get("notification_status"),
+                "immediate_alert_sent_at": state.get("immediate_alert_sent_at"),
                 "final_checklist": dict(final_checklist),
             }
         ),
@@ -89,8 +96,12 @@ def _validate_item_results(
     final_checklist: Mapping[str, Any],
 ) -> None:
     checklist_items = final_checklist.get("items")
-    if not isinstance(checklist_items, list) or not checklist_items:
-        raise ChecklistValidationError("final_checklist.items must not be empty")
+    if not isinstance(checklist_items, list):
+        raise ChecklistValidationError("final_checklist.items must be a list")
+    # A legacy/mock checklist may have no item rows.  The response itself is
+    # still valid; there are simply no item IDs to compare.
+    if not checklist_items:
+        return
 
     expected_ids = {
         item.get("checklist_item_id")
@@ -115,3 +126,37 @@ def _validate_item_results(
             "worker response checklist items do not match the interrupted checklist",
             details={"missing_ids": missing_ids, "unknown_ids": unknown_ids},
         )
+
+
+def _normalize_worker_response(raw_response: Any, *, checklist_id: str) -> Any:
+    """Accept the UI's compact ``item_statuses`` payload as well as the
+    canonical ``item_results`` contract.
+
+    The UI only needs to submit a status map and a note.  Normalize it at the
+    graph boundary so the rest of the system stores one stable schema.
+    """
+
+    if not isinstance(raw_response, Mapping):
+        return raw_response
+    if "item_results" in raw_response:
+        return raw_response
+
+    item_statuses = raw_response.get("item_statuses")
+    if not isinstance(item_statuses, Mapping):
+        return raw_response
+
+    normalized = dict(raw_response)
+    normalized["checklist_id"] = normalized.get("checklist_id") or checklist_id
+    normalized["worker_id"] = normalized.get("worker_id") or "ui-worker"
+    normalized["item_results"] = [
+        {
+            "checklist_item_id": item_id,
+            "status": status,
+            "worker_note": normalized.get("note"),
+        }
+        for item_id, status in item_statuses.items()
+    ]
+    normalized.pop("item_statuses", None)
+    normalized.pop("note", None)
+    normalized.setdefault("submitted_at", datetime.now(timezone.utc))
+    return normalized

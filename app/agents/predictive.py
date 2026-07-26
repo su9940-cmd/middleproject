@@ -5,6 +5,7 @@ from typing import Any
 
 from app.core.exceptions import MLServiceError, ModelInputError
 from app.graph.state import SafetyState
+from app.services import ml_service
 from app.services.ml_service import MLService
 
 
@@ -38,7 +39,11 @@ def predictive_agent(state: SafetyState) -> dict[str, Any]:
             payload[key] = state[key]
 
     try:
-        prediction = get_ml_service().predict(payload)
+        score, model_version, prediction_thresholds = ml_service.predict_risk_score(
+            sensor_reading=payload,
+            machine_id=str(state.get("machine_id") or payload.get("machine_id") or ""),
+            machine_type=state.get("machine_type") or payload.get("machine_type"),
+        )
     except MLServiceError as exc:
         return {
             "error_code": exc.error_code,
@@ -47,9 +52,9 @@ def predictive_agent(state: SafetyState) -> dict[str, Any]:
         }
 
     return {
-        "ml_risk_score": prediction.ml_risk_score,
-        "model_version": prediction.model_version,
-        "prediction_thresholds": prediction.prediction_thresholds,
+        "ml_risk_score": score,
+        "model_version": model_version,
+        "prediction_thresholds": prediction_thresholds,
         "error_code": None,
         "error_message": None,
         "failed_node": None,

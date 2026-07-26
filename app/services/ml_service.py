@@ -151,3 +151,28 @@ class MLService:
                 f"model input mapping is missing columns: {', '.join(missing_columns)}"
             )
         return pd.DataFrame([model_row], columns=expected_columns)
+
+
+def predict_risk_score(
+    *,
+    sensor_reading: Mapping[str, Any],
+    machine_id: str,
+    machine_type: Any,
+) -> tuple[float, str, dict[str, float]]:
+    """Compatibility adapter for the graph-level ML contract.
+
+    The backend/API slice historically patched this function directly while
+    the ML Agent used ``MLService.predict``.  Keeping this small adapter lets
+    both contracts share the same persisted pipeline and makes integration
+    tests able to replace inference without touching the Agent.
+    """
+
+    payload = dict(sensor_reading)
+    payload.setdefault("machine_id", machine_id)
+    payload.setdefault("machine_type", machine_type)
+    prediction = MLService().predict(payload)
+    return (
+        prediction.ml_risk_score,
+        prediction.model_version,
+        prediction.prediction_thresholds,
+    )
