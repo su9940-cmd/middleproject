@@ -58,3 +58,4 @@ dd.ipynb
 # Claude Code 전용 파일 (프로젝트 산출물 아님)
 CLAUDE.md
 _debrief/
+chroma_db/

@@ -189,6 +189,32 @@ class GraphBuilderIntegrationTest(unittest.TestCase):
         self.assertEqual(self.events.count("action"), 2)
         self.assertEqual(self.events.count("validator"), 2)
 
+    def test_rag_failure_stops_before_action_draft(self) -> None:
+        dependencies = self._dependencies(RiskLevel.WARNING)
+        graph = build_safety_graph(
+            replace(
+                dependencies,
+                rag_agent=self._recording_node(
+                    "rag",
+                    {
+                        "error_code": "RAG_RETRIEVAL_FAILED",
+                        "error_message": "no grounded SOP document was retrieved",
+                        "failed_node": "rag_agent",
+                        "retrieved_documents": [],
+                    },
+                ),
+            ),
+            checkpointer=InMemorySaver(),
+        )
+
+        result = graph.invoke(
+            self._initial_state(), graph_config("M-0101:AL-RAG-ERROR")
+        )
+
+        self.assertEqual(result["error_code"], "RAG_RETRIEVAL_FAILED")
+        self.assertNotIn("action", self.events)
+        self.assertNotIn("validator", self.events)
+
     def test_graph_config_rejects_empty_thread_id(self) -> None:
         with self.assertRaises(ValueError):
             graph_config("   ")

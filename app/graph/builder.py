@@ -11,7 +11,11 @@ from langgraph.graph import END, START, StateGraph
 
 from app.agents.predictive import predictive_agent as default_predictive_agent
 from app.core.enums import RiskLevel
-from app.core.exceptions import ChecklistValidationError
+from app.core.exceptions import (
+    ChecklistValidationError,
+    MemoryLookupError,
+    RAGRetrievalError,
+)
 from app.graph.state import SafetyState
 from app.nodes.recovery import recovery_node as default_recovery_node
 from app.nodes.risk_policy import risk_policy as default_risk_policy
@@ -53,6 +57,7 @@ def build_safety_graph(
     builder.add_node("recovery_node", dependencies.recovery_node)
     builder.add_node("rag_agent", dependencies.rag_agent)
     builder.add_node("memory_agent", dependencies.memory_agent)
+    builder.add_node("context_guard", _context_guard)
     builder.add_node("action_draft_node", dependencies.action_draft_node)
     builder.add_node("validator_agent", dependencies.validator_agent)
     builder.add_node("send_immediate_alert", dependencies.send_immediate_alert)
@@ -73,7 +78,12 @@ def build_safety_graph(
 
     builder.add_edge("recovery_node", END)
     builder.add_edge("send_immediate_alert", END)
-    builder.add_edge(["rag_agent", "memory_agent"], "action_draft_node")
+    builder.add_edge(["rag_agent", "memory_agent"], "context_guard")
+    builder.add_conditional_edges(
+        "context_guard",
+        _route_after_context,
+        {"continue": "action_draft_node", "error": END},
+    )
     builder.add_edge("action_draft_node", "validator_agent")
     builder.add_conditional_edges(
         "validator_agent",
@@ -115,6 +125,33 @@ def _route_after_risk_policy(state: SafetyState) -> list[str]:
     if risk_level is RiskLevel.EMERGENCY:
         return ["send_immediate_alert", "rag_agent", "memory_agent"]
     return ["rag_agent", "memory_agent"]
+
+
+def _context_guard(state: SafetyState) -> dict[str, Any]:
+    """Fan-in barrier used before Action Draft consumes RAG and Memory."""
+
+    if state.get("error_code"):
+        return {}
+    documents = state.get("retrieved_documents")
+    if not isinstance(documents, list) or not documents:
+        return {
+            "error_code": RAGRetrievalError.error_code,
+            "error_message": "RAG returned no documents",
+            "failed_node": "rag_agent",
+        }
+    if not isinstance(state.get("memory_context"), dict):
+        return {
+            "error_code": MemoryLookupError.error_code,
+            "error_message": "Memory Agent returned no context",
+            "failed_node": "memory_agent",
+        }
+    return {}
+
+
+def _route_after_context(state: SafetyState) -> Literal["continue", "error"]:
+    if state.get("error_code"):
+        return "error"
+    return "continue"
 
 
 def _route_after_validator(
