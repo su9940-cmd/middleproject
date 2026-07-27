@@ -117,7 +117,7 @@ def build_sop_records(path: Path, strategy: str) -> list[dict[str, Any]]:
                 if isinstance(meta.get("risk_level_tags", []), list)
                 else str(meta.get("risk_level_tags", "")),
                 "source_path": str(path),
-                "legal_reference": meta.get("legal_reference"),
+                "legal_reference": str(meta.get("legal_reference") or ""),
                 "manual_id": manual_id,
                 "machine_type": meta.get("machine_type"),
                 "machine_id": meta.get("machine_id"),
@@ -179,7 +179,9 @@ def build_law_records(path: Path, strategy: str) -> list[dict[str, Any]]:
                         if isinstance(meta.get("risk_level_tags", []), list)
                         else str(meta.get("risk_level_tags", "")),
                         "source_path": str(path),
-                        "legal_reference": meta.get("legal_reference") or meta.get("article"),
+                        "legal_reference": str(
+                            meta.get("legal_reference") or meta.get("article") or ""
+                        ),
                         "manual_id": manual_id,
                         "law_name": meta.get("law_name"),
                         "article": meta.get("article"),
