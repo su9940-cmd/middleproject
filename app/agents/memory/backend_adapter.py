@@ -14,6 +14,7 @@ from app.agents.memory.context_builder import (
     partition_action_ids,
 )
 from app.core.db import session_scope
+from app.core.exceptions import MemoryLookupError
 from app.graph.state import SafetyState
 from app.models.orm_models import AlertORM, ChecklistORM, MaintenanceRequestORM
 
@@ -23,7 +24,10 @@ async def backend_memory_agent(state: SafetyState) -> dict:
 
     machine_id = state.get("machine_id")
     if not machine_id:
-        raise ValueError("machine_id is required to build memory context")
+        raise MemoryLookupError(
+            "machine_id is required to build memory context",
+            details={"failed_node": "memory_agent"},
+        )
 
     async with session_scope() as session:
         alert_stmt = (

@@ -10,22 +10,18 @@ rag_service.VectorStore 프로토콜을 구현한다.
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 import chromadb
 from langchain_huggingface import HuggingFaceEmbeddings
+from app.core.config import settings
 
 # from app.core.config import get_settings  # TODO(config): config 확정 후 주입
 
 # --- 임시 상수 (TODO(config): D팀 config 키 확정 후 아래 상수 제거하고 settings로 대체) ---
 # settings.chroma_path 로 대체 예정
-_PROJECT_ROOT = Path(__file__).resolve().parents[2]
-_CHROMA_PATH = str(_PROJECT_ROOT / "chroma_db")
 # settings.chroma_collection_name 으로 대체 예정
-_COLLECTION_NAME = "safety_documents__section"
 # settings.embedding_model 로 대체 예정
-_EMBEDDING_MODEL = "jhgan/ko-sroberta-multitask"
 # -------------------------------------------------------------------------
 
 
@@ -43,9 +39,9 @@ class ChromaVectorStore:
     ) -> None:
         # TODO(config): 인자가 없으면 get_settings()에서 값을 읽도록 변경
         # settings = get_settings()
-        self._chroma_path = chroma_path or _CHROMA_PATH
-        self._collection_name = collection_name or _COLLECTION_NAME
-        self._embedding_model_name = embedding_model or _EMBEDDING_MODEL
+        self._chroma_path = chroma_path or settings.rag_chroma_path
+        self._collection_name = collection_name or settings.rag_chroma_collection_name
+        self._embedding_model_name = embedding_model or settings.rag_embedding_model
 
         self._client = chromadb.PersistentClient(path=self._chroma_path)
         # Runtime must not silently create an empty collection when document
@@ -106,6 +102,11 @@ class ChromaVectorStore:
                     "document_type": meta.get("document_type"),
                     "title": meta.get("title"),
                     "section": meta.get("section"),
+                    "section_id": meta.get("section_id"),
+                    "action_level": meta.get("action_level"),
+                    "risk_level_tags": meta.get("risk_level_tags"),
+                    "source_path": meta.get("source_path"),
+                    "legal_reference": meta.get("legal_reference"),
                     "content": content,
                     # 코사인 거리 → 유사도(1 - distance). 음수 방지를 위해 max 처리.
                     "relevance_score": _distance_to_score(distance),

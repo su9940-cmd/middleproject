@@ -26,7 +26,9 @@ from scripts.evaluate_rag import (
 )
 
 _STRATEGIES = ("section", "fixed_512_50", "fixed_1024_100")
-_COLLECTION_PREFIX = "safety_documents"
+from app.core.config import settings
+
+_COLLECTION_PREFIX = settings.rag_chroma_collection_name.removesuffix("__section")
 
 
 def evaluate_collection(collection_name: str) -> tuple[float, float, int]:

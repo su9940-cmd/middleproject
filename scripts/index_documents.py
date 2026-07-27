@@ -28,13 +28,14 @@ from typing import Any
 import yaml
 import chromadb
 from langchain_huggingface import HuggingFaceEmbeddings
+from app.core.config import settings
 
 # from app.core.config import get_settings  # TODO(config): config 확정 후 주입
 
 # --- 임시 상수 (TODO(config): D팀 config 키 확정 후 settings로 대체) ---
-_CHROMA_PATH = str(Path(__file__).resolve().parent.parent / "chroma_db")
-_COLLECTION_PREFIX = "safety_documents"           # settings.chroma_collection_name
-_EMBEDDING_MODEL = "jhgan/ko-sroberta-multitask"  # settings.embedding_model
+_CHROMA_PATH = settings.rag_chroma_path
+_COLLECTION_PREFIX = settings.rag_chroma_collection_name.removesuffix("__section")
+_EMBEDDING_MODEL = settings.rag_embedding_model
 # --------------------------------------------------------------------
 
 _ROOT = Path(__file__).resolve().parent.parent
@@ -110,6 +111,13 @@ def build_sop_records(path: Path, strategy: str) -> list[dict[str, Any]]:
                 "document_type": meta.get("doc_type", "sop"),
                 "title": section_title or manual_id,
                 "section": section_title or "",
+                "section_id": f"{manual_id}__{strategy}__sec{idx}",
+                "action_level": meta.get("action_level", "STANDARD"),
+                "risk_level_tags": ",".join(map(str, meta.get("risk_level_tags", [])))
+                if isinstance(meta.get("risk_level_tags", []), list)
+                else str(meta.get("risk_level_tags", "")),
+                "source_path": str(path),
+                "legal_reference": meta.get("legal_reference"),
                 "manual_id": manual_id,
                 "machine_type": meta.get("machine_type"),
                 "machine_id": meta.get("machine_id"),
@@ -165,6 +173,13 @@ def build_law_records(path: Path, strategy: str) -> list[dict[str, Any]]:
                         "document_type": meta.get("doc_type", "law"),
                         "title": title,
                         "section": meta.get("article"),
+                        "section_id": f"{source_id}__{manual_id}__{strategy}__{j}",
+                        "action_level": meta.get("action_level", "REFERENCE"),
+                        "risk_level_tags": ",".join(map(str, meta.get("risk_level_tags", [])))
+                        if isinstance(meta.get("risk_level_tags", []), list)
+                        else str(meta.get("risk_level_tags", "")),
+                        "source_path": str(path),
+                        "legal_reference": meta.get("legal_reference") or meta.get("article"),
                         "manual_id": manual_id,
                         "law_name": meta.get("law_name"),
                         "article": meta.get("article"),

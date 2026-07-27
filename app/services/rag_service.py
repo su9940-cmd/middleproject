@@ -6,9 +6,10 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from app.core.enums import MachineType
+from app.core.config import settings
 
 
-DEFAULT_TOP_K = 5
+DEFAULT_TOP_K = settings.rag_default_top_k
 
 MACHINE_MANUAL_MAP: dict[str, str] = {
     "M-0101": "reactor_safety_manual",
@@ -113,6 +114,11 @@ def normalize_retrieved_documents(
                 "document_type": document_type,
                 "title": title,
                 "section": item.get("section"),
+                "section_id": item.get("section_id"),
+                "action_level": item.get("action_level"),
+                "risk_level_tags": item.get("risk_level_tags"),
+                "source_path": item.get("source_path"),
+                "legal_reference": item.get("legal_reference"),
                 "content": content,
                 "relevance_score": item.get("relevance_score"),
                 "manual_version": item.get("manual_version"),
