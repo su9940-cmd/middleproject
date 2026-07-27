@@ -5,10 +5,28 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from app.core.exceptions import RAGRetrievalError
 from app.graph.state import SafetyState
 from app.services.rag_service import RetrievalRequest, resolve_manual_id, retrieve_documents
 from app.services.vector_store_factory import get_vector_store
+
+
+def _parse_law_front_matter(text: str) -> dict[str, Any]:
+    """Pull the `article`/`law_name`/`title` front-matter fields off a law markdown file.
+
+    Mirrors `scripts/index_documents.py::parse_front_matter` - duplicated here
+    (rather than imported) since `scripts/` isn't a library the app package
+    depends on.
+    """
+
+    if not text.startswith("---"):
+        return {}
+    parts = text.split("---", 2)
+    if len(parts) < 3:
+        return {}
+    return yaml.safe_load(parts[1]) or {}
 
 
 def build_query_text(state: SafetyState) -> str:
@@ -136,18 +154,28 @@ def _load_local_documents(manual_id: str) -> list[dict[str, Any]]:
 
     law_dir = project_root / "data" / "laws"
     for law_path in sorted(law_dir.glob("*.md"))[:2]:
+        law_text = law_path.read_text(encoding="utf-8")
+        front_matter = _parse_law_front_matter(law_text)
+        article = front_matter.get("article")
+        # Same title/legal_reference shape as the real Chroma-indexed path
+        # (scripts/index_documents.py::build_law_records) so both retrieval
+        # paths render identically in the UI.
+        title = (
+            f"{front_matter.get('law_name', '')} {article or ''} "
+            f"({front_matter.get('title', '')})"
+        ).strip() or law_path.stem
         documents.append(
             {
-                "source_id": law_path.stem,
+                "source_id": front_matter.get("source_id") or law_path.stem,
                 "document_type": "law",
-                "title": law_path.stem,
-                "section": None,
+                "title": title,
+                "section": article,
                 "section_id": f"{law_path.stem}:full",
                 "action_level": "REFERENCE",
                 "risk_level_tags": None,
                 "source_path": str(law_path),
-                "legal_reference": law_path.stem,
-                "content": law_path.read_text(encoding="utf-8"),
+                "legal_reference": front_matter.get("legal_reference") or article or law_path.stem,
+                "content": law_text,
                 "relevance_score": 0.5,
                 "manual_version": None,
             }

@@ -4,7 +4,9 @@ The LLM proposes wording and selects document keys. Server-side code then
 validates those keys, creates stable identifiers, attaches exact citations,
 filters completed actions, and marks previously failed actions. If the LLM is
 unavailable, only SOP documents are converted into executable fallback items;
-laws and KOSHA material remain supporting references.
+laws and KOSHA material are attached to those items as extra citations
+(AC-04 requires every item to keep an SOP citation) and also kept in
+`supporting_references` for a standalone reference view.
 """
 
 from __future__ import annotations
@@ -200,7 +202,15 @@ def _fallback_from_documents(
     memory_context: dict[str, Any],
     risk_level: RiskLevel | str,
 ) -> list[dict[str, Any]]:
-    """Convert only SOP chunks to executable items; keep laws as references."""
+    """Convert SOP chunks to executable items, each citing its supporting law too.
+
+    A law/KOSHA document never becomes a checklist item by itself (AC-04:
+    `source_grounding.py` rejects any item without an SOP citation - a legal
+    reference isn't an executable worker action). Instead every SOP item also
+    carries the retrieved law documents as extra citations, so the worker
+    still sees which article backs the instruction, labelled by source type
+    (SOP/산안법) - see `ChecklistItem.jsx::citationLabel`.
+    """
 
     completed = set(memory_context.get("completed_action_ids") or [])
     failed = set(memory_context.get("failed_action_ids") or [])
@@ -209,6 +219,11 @@ def _fallback_from_documents(
         if str(risk_level or "").upper() in {"EMERGENCY", "WARNING"}
         else "MEDIUM"
     )
+    law_citations = [
+        _citation_from_document(document)
+        for document in document_index.values()
+        if document["document_type"] != "sop"
+    ]
 
     items: list[dict[str, Any]] = []
     seen_item_ids: set[str] = set()
@@ -230,7 +245,7 @@ def _fallback_from_documents(
                 "instruction": document["content"],
                 "priority": default_priority,
                 "required": True,
-                "citations": [_citation_from_document(document)],
+                "citations": [_citation_from_document(document), *law_citations],
                 "previously_failed": bool(comparable_ids & failed),
             }
         )

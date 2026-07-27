@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import Badge from "../components/Badge.jsx";
 import ChecklistItem from "../components/ChecklistItem.jsx";
+import LegalReferences from "../components/LegalReferences.jsx";
 import SensorForm from "../components/SensorForm.jsx";
 import { LoadingBlock, ErrorBlock, EmptyBlock } from "../components/StatusBlock.jsx";
 import { getActiveAlert, getAlertChecklist } from "../api/alerts.js";
@@ -349,6 +350,8 @@ export default function WorkerScreen() {
             );
           })}
         </div>
+
+        <LegalReferences references={checklist.supporting_references} />
 
         {submitError && <p className="status-block error">{submitError.message}</p>}
         <button type="button" className="primary" disabled={!allDecided || submitting} onClick={handleSubmit}>

@@ -73,6 +73,7 @@ class ChecklistRepository:
                 risk_level=checklist_data.get("risk_level", "CAUTION"),
                 action_phase=checklist_data.get("action_phase", "INITIAL"),
                 items=checklist_data.get("items", []),
+                supporting_references=checklist_data.get("supporting_references", []),
                 requires_manager_report=checklist_data.get("requires_manager_report", False),
                 requires_maintenance_request=checklist_data.get("requires_maintenance_request", False),
             )

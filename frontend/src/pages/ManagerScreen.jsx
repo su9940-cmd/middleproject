@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import Badge from "../components/Badge.jsx";
 import ChecklistItem from "../components/ChecklistItem.jsx";
+import LegalReferences from "../components/LegalReferences.jsx";
 import { LoadingBlock, ErrorBlock, EmptyBlock } from "../components/StatusBlock.jsx";
 import { getActiveAlert, getAlertChecklist } from "../api/alerts.js";
 import { decideMaintenanceRequest, listPendingMaintenanceRequests } from "../api/maintenance.js";
@@ -121,6 +122,8 @@ export default function ManagerScreen() {
               />
             ))}
           </div>
+
+          <LegalReferences references={checklist.supporting_references} />
 
           {maintenanceRequest && (
             <div className="mtreq-box" style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid var(--rule)" }}>

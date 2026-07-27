@@ -11,7 +11,7 @@ const TRUNCATE_AT = 220;
  * dumps a whole SOP markdown file as one item's instruction text, so this
  * is a real, common case, not an edge case.
  */
-function Truncated({ text }) {
+export function Truncated({ text }) {
   const [expanded, setExpanded] = useState(false);
   if (!text) return null;
   if (text.length <= TRUNCATE_AT) return <span>{text}</span>;
@@ -25,16 +25,21 @@ function Truncated({ text }) {
   );
 }
 
-/** "reactor_safety_manual 5절, law_art241" - a compact reference, not the
- * source text itself (the item's own instruction already carries that). */
+/** "SOP: reactor_safety_manual 5절 · 산안법: 산업안전보건기준에 관한 규칙 제241조" -
+ * a compact reference labelled by source type, not the source text itself
+ * (the item's own instruction already carries that). */
 function citationLabel(citations) {
-  const parts = citations
+  const sop = citations
     .filter((c) => c.document_type === "sop")
     .map((c) => (c.section ? `${c.source_id} ${c.section}` : c.source_id));
-  parts.push(
-    ...citations.filter((c) => c.document_type !== "sop").map((c) => c.legal_reference || c.source_id),
-  );
-  return parts.join(", ");
+  const law = citations
+    .filter((c) => c.document_type !== "sop")
+    .map((c) => c.legal_reference || c.source_id);
+
+  const parts = [];
+  if (sop.length > 0) parts.push(`SOP: ${sop.join(", ")}`);
+  if (law.length > 0) parts.push(`산안법: ${law.join(", ")}`);
+  return parts.join(" · ");
 }
 
 /**

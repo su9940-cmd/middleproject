@@ -122,6 +122,11 @@ class ChecklistORM(Base):
     action_phase: Mapped[str] = mapped_column(String(32), nullable=False)
 
     items: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False)
+    # Law/KOSHA documents the RAG step retrieved alongside the SOP but that
+    # never became their own checklist item (see draft_composer.py's
+    # `_collect_supporting_references`) - kept so the worker screen can still
+    # cite them by article.
+    supporting_references: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list, nullable=False)
     worker_note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     requires_manager_report: Mapped[bool] = mapped_column(default=False, nullable=False)

@@ -1,7 +1,6 @@
 import { useState } from "react";
 import {
-  NORMAL_SENSOR_PRESET,
-  EMERGENCY_SENSOR_PRESETS,
+  MACHINE_SENSOR_PRESETS,
   SHIFT_OPTIONS,
   EXPERIENCE_OPTIONS,
   TRAINING_OPTIONS,
@@ -9,15 +8,15 @@ import {
 import { ingestSensorReading } from "../api/sensors.js";
 
 const NUMBER_FIELDS = [
-  { key: "temperature", label: "온도" },
-  { key: "pressure", label: "압력" },
-  { key: "humidity", label: "습도" },
-  { key: "vibration", label: "진동" },
-  { key: "speed", label: "속도" },
-  { key: "age", label: "설비 나이", integer: true },
-  { key: "service_days", label: "가동 경과일", integer: true },
-  { key: "gas", label: "가스" },
-  { key: "sparks", label: "스파크", integer: true },
+  { key: "temperature", label: "온도(℃)" },
+  { key: "pressure", label: "압력(kPa)" },
+  { key: "humidity", label: "습도(%)" },
+  { key: "vibration", label: "진동(mm/s)" },
+  { key: "speed", label: "속도(RPM)" },
+  { key: "age", label: "설비 나이(년)", integer: true },
+  { key: "service_days", label: "가동 경과일(일)", integer: true },
+  { key: "gas", label: "가스(ppm)" },
+  { key: "sparks", label: "스파크(회)", integer: true },
 ];
 
 function buildReadingId(machineId) {
@@ -26,17 +25,12 @@ function buildReadingId(machineId) {
 }
 
 export default function SensorForm({ machine, measurementMode = "PERIODIC", onSubmitted }) {
-  const [values, setValues] = useState(NORMAL_SENSOR_PRESET);
+  const [values, setValues] = useState(MACHINE_SENSOR_PRESETS[machine.machineType]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
 
   function updateField(key, rawValue) {
     setValues((prev) => ({ ...prev, [key]: rawValue }));
-  }
-
-  function applyPreset(preset) {
-    setValues(preset);
-    setError(null);
   }
 
   async function handleSubmit(event) {
@@ -74,19 +68,6 @@ export default function SensorForm({ machine, measurementMode = "PERIODIC", onSu
 
   return (
     <form onSubmit={handleSubmit}>
-      <div className="button-row">
-        <button type="button" className="ghost" onClick={() => applyPreset(NORMAL_SENSOR_PRESET)}>
-          정상 값 채우기
-        </button>
-        <button
-          type="button"
-          className="ghost"
-          onClick={() => applyPreset(EMERGENCY_SENSOR_PRESETS[machine.machineType])}
-        >
-          긴급 값 채우기
-        </button>
-      </div>
-
       <div className="field-grid">
         {NUMBER_FIELDS.map((field) => (
           <div className="field" key={field.key}>

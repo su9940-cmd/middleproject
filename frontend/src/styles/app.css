@@ -291,6 +291,7 @@ a {
   margin: 4px 0 0;
   color: var(--muted);
   line-height: 1.55;
+  text-align: justify;
 }
 .expand-toggle {
   border: none;
@@ -334,6 +335,7 @@ tr.row td {
 }
 
 select.status-select {
+  width: auto;
   height: 30px;
   font-size: 12px;
   min-width: 72px;

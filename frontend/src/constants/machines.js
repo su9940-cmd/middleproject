@@ -11,30 +11,64 @@ export function machineById(machineId) {
   return MACHINES.find((machine) => machine.machineId === machineId) || null;
 }
 
-// A baseline reading calm enough to stay NORMAL for every machine type.
-export const NORMAL_SENSOR_PRESET = {
-  temperature: 25,
-  pressure: 20,
-  humidity: 40,
-  vibration: 0.8,
-  speed: 1200,
-  age: 3,
-  service_days: 90,
-  gas: 1.0,
-  sparks: 0,
-  shift: "Day",
-  experience: "Senior",
-  training: "Yes",
-};
-
-// One field pushed just past that machine type's emergency rule
-// (app/nodes/risk_policy.py::EMERGENCY_RULES) so the preset reliably
-// demonstrates the EMERGENCY path without hand-tuning every field.
-export const EMERGENCY_SENSOR_PRESETS = {
-  REACTOR: { ...NORMAL_SENSOR_PRESET, temperature: 45 },
-  COMPRESSOR: { ...NORMAL_SENSOR_PRESET, vibration: 5.2 },
-  STORAGE_TANK: { ...NORMAL_SENSOR_PRESET, gas: 9.5, sparks: 3 },
-  PUMP: { ...NORMAL_SENSOR_PRESET, vibration: 6.0 },
+// Per machine-type demo readings mirroring the MOCK-* fixtures used for QA.
+export const MACHINE_SENSOR_PRESETS = {
+  REACTOR: {
+    temperature: 30.0,
+    pressure: 25.0,
+    humidity: 40.0,
+    vibration: 1.0,
+    speed: 1500.0,
+    age: 5,
+    service_days: 90,
+    gas: 1.0,
+    sparks: 0,
+    shift: "Day",
+    experience: "Senior",
+    training: "Yes",
+  },
+  COMPRESSOR: {
+    temperature: 30.0,
+    pressure: 35.0,
+    humidity: 40.0,
+    vibration: 4.0,
+    speed: 3000.0,
+    age: 5,
+    service_days: 90,
+    gas: 1.0,
+    sparks: 0,
+    shift: "Day",
+    experience: "Senior",
+    training: "Yes",
+  },
+  STORAGE_TANK: {
+    temperature: 45.0,
+    pressure: 44.0,
+    humidity: 40.0,
+    vibration: 1.0,
+    speed: 1500.0,
+    age: 5,
+    service_days: 90,
+    gas: 8.5,
+    sparks: 2,
+    shift: "Day",
+    experience: "Senior",
+    training: "Yes",
+  },
+  PUMP: {
+    temperature: 30.0,
+    pressure: 25.0,
+    humidity: 40.0,
+    vibration: 6.5,
+    speed: 1500.0,
+    age: 5,
+    service_days: 90,
+    gas: 1.0,
+    sparks: 0,
+    shift: "Day",
+    experience: "Senior",
+    training: "Yes",
+  },
 };
 
 export const SHIFT_OPTIONS = ["Day", "Night"];

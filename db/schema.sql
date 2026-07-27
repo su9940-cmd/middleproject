@@ -106,6 +106,7 @@ CREATE TABLE checklists (
     action_phase                  VARCHAR(32) NOT NULL,
 
     items                         JSONB NOT NULL,
+    supporting_references         JSONB NOT NULL DEFAULT '[]',
     worker_note                   TEXT,
 
     requires_manager_report       BOOLEAN NOT NULL DEFAULT false,

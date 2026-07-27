@@ -117,7 +117,12 @@ def build_sop_records(path: Path, strategy: str) -> list[dict[str, Any]]:
                 if isinstance(meta.get("risk_level_tags", []), list)
                 else str(meta.get("risk_level_tags", "")),
                 "source_path": str(path),
-                "legal_reference": meta.get("legal_reference"),
+                # SOP front-matter uses `legal_refs` (a list), not `legal_reference`
+                # (the law-file singular field) - Chroma rejects None metadata
+                # values outright, so this must never fall through to None.
+                "legal_reference": ", ".join(meta.get("legal_refs", []))
+                if isinstance(meta.get("legal_refs"), list)
+                else str(meta.get("legal_refs") or meta.get("legal_reference") or ""),
                 "manual_id": manual_id,
                 "machine_type": meta.get("machine_type"),
                 "machine_id": meta.get("machine_id"),
