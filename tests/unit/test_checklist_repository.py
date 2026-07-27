@@ -97,8 +97,9 @@ async def test_get_latest_by_alert_picks_the_highest_version(async_session):
 
 @pytest.mark.asyncio
 async def test_update_worker_response_sets_items_note_and_completed_at(async_session):
-    """worker_response matches what WorkerInterruptScreen.handleSubmit (role E) sends:
-    `item_statuses` (a status per checklist_item_id) + `note`, not `items`/`worker_note`."""
+    """Legacy compact shape (the raw pre-normalization resume payload, before
+    `worker_interrupt._normalize_worker_response` runs): `item_statuses` +
+    `note`. Still accepted for callers that invoke the repository directly."""
 
     repo = ChecklistRepository(async_session)
     await repo.save_checklist(_checklist_data())
@@ -114,6 +115,60 @@ async def test_update_worker_response_sets_items_note_and_completed_at(async_ses
     assert updated.items[0]["status"] == "COMPLETED"
     assert updated.items[0]["title"] == "냉각수 밸브 개방"
     assert updated.items[0]["source_ids"] == ["SOP-1"]
+
+
+@pytest.mark.asyncio
+async def test_update_worker_response_persists_per_item_notes(async_session):
+    """The real production shape: `state["worker_response"]` is a validated
+    `WorkerResumePayload` dump - `item_results[].worker_note` per item plus
+    a top-level `overall_note`, never `item_statuses`/`note`."""
+
+    repo = ChecklistRepository(async_session)
+    await repo.save_checklist(
+        _checklist_data(
+            items=[
+                {
+                    "checklist_item_id": "CI-1",
+                    "title": "냉각수 밸브 개방",
+                    "instruction": "즉시 밸브를 연다.",
+                    "source_ids": ["SOP-1"],
+                    "status": "PENDING",
+                    "worker_note": None,
+                },
+                {
+                    "checklist_item_id": "CI-2",
+                    "title": "가스 감지기 점검",
+                    "instruction": "가스 감지기 수치를 확인한다.",
+                    "source_ids": ["SOP-2"],
+                    "status": "PENDING",
+                    "worker_note": None,
+                },
+            ]
+        )
+    )
+
+    updated = await repo.update_worker_response(
+        "CL-AL-M0101-001-V1",
+        {
+            "item_results": [
+                {"checklist_item_id": "CI-1", "status": "COMPLETED", "worker_note": None},
+                {
+                    "checklist_item_id": "CI-2",
+                    "status": "SKIPPED",
+                    "worker_note": "감지기가 접근 불가 구역에 있어 보류",
+                },
+            ],
+            "overall_note": None,
+        },
+    )
+
+    by_id = {item["checklist_item_id"]: item for item in updated.items}
+    assert by_id["CI-1"]["status"] == "COMPLETED"
+    assert by_id["CI-1"]["worker_note"] is None
+    assert by_id["CI-2"]["status"] == "SKIPPED"
+    assert by_id["CI-2"]["worker_note"] == "감지기가 접근 불가 구역에 있어 보류"
+    # title/instruction/source_ids must survive the merge untouched.
+    assert by_id["CI-2"]["title"] == "가스 감지기 점검"
 
 
 @pytest.mark.asyncio

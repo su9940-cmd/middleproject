@@ -1,0 +1,497 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--header-ink);
+  font-family:
+    -apple-system,
+    "Segoe UI",
+    "Pretendard",
+    system-ui,
+    sans-serif;
+  font-size: 14px;
+}
+
+a {
+  color: inherit;
+}
+
+.app-shell {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-header {
+  border-bottom: 1px solid var(--rule);
+  background: var(--paper);
+}
+
+.app-header-inner {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 14px 20px;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.app-title {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 0;
+  color: var(--header-ink);
+}
+
+.app-nav {
+  display: flex;
+  gap: 6px;
+}
+
+.app-nav a {
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--header-muted);
+  padding: 6px 12px;
+  border-radius: 999px;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+.app-nav a:hover {
+  background: var(--paper-chip);
+}
+
+.app-nav a.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.app-main {
+  flex: 1;
+  max-width: 1100px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 24px 20px 56px;
+}
+
+.page-header {
+  margin-bottom: 18px;
+}
+
+.page-header h1 {
+  font-size: clamp(19px, 2.6vw, 24px);
+  font-weight: 650;
+  margin: 0 0 6px;
+  letter-spacing: -0.01em;
+}
+
+.page-header p {
+  font-size: 13px;
+  color: var(--header-muted);
+  margin: 0;
+  max-width: 68ch;
+  line-height: 1.6;
+}
+
+/* ---- Cards ---- */
+.card {
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  padding: 18px;
+  color: var(--ink);
+}
+
+.card + .card {
+  margin-top: 14px;
+}
+
+.card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.card-head .title {
+  font-weight: 600;
+  font-size: 14.5px;
+  margin: 0;
+  color: var(--ink);
+}
+
+.card-head .sub {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 4px 0 0;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 14px;
+}
+
+/* ---- Risk-stage badges (1-4, per five_screen_flow_v9.html) ---- */
+.risk-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.risk-badge-NORMAL {
+  background: var(--risk-normal);
+  color: var(--risk-normal-fg);
+}
+.risk-badge-CAUTION {
+  background: var(--risk-caution);
+  color: var(--risk-caution-fg);
+}
+.risk-badge-WARNING {
+  background: var(--risk-warning);
+  color: var(--risk-warning-fg);
+}
+.risk-badge-triangle {
+  position: relative;
+  display: inline-block;
+  width: 26px;
+  height: 24px;
+  flex-shrink: 0;
+}
+.risk-badge-triangle-shape {
+  position: absolute;
+  inset: 0;
+  clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
+  background: var(--risk-emergency);
+}
+.risk-badge-triangle-label {
+  position: absolute;
+  bottom: 1px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  color: var(--risk-emergency-fg);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+/* ---- Badges (text pills - non-risk use only) ---- */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 7px;
+  white-space: nowrap;
+}
+.badge.success {
+  background: var(--success-bg);
+  color: var(--success-fg);
+}
+.badge.danger {
+  background: var(--danger-bg);
+  color: var(--danger-fg);
+}
+.badge.chip {
+  background: var(--paper-chip);
+  color: var(--muted);
+  font-weight: 500;
+  font-size: 11.5px;
+}
+
+/* ---- Meta rows ---- */
+.meta-row {
+  display: flex;
+  gap: 14px;
+  font-size: 12px;
+  color: var(--muted);
+  margin: 10px 0;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--rule);
+  flex-wrap: wrap;
+}
+.meta-row b {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.notice {
+  background: var(--emergency-bg);
+  color: var(--emergency-fg);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.fill {
+  background: var(--paper-sunken);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 12.5px;
+}
+
+.section-title {
+  font-weight: 600;
+  font-size: 12.5px;
+  margin: 16px 0 8px;
+  color: var(--ink);
+}
+.section-title:first-child {
+  margin-top: 0;
+}
+
+/* ---- Checklist items ---- */
+.items {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.item {
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 11px 12px;
+  font-size: 13px;
+  background: var(--paper-sunken);
+}
+.item .row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: flex-start;
+}
+.item .item-title {
+  font-weight: 500;
+  color: var(--ink);
+  margin: 0;
+}
+.item .instruction {
+  margin: 4px 0 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+.expand-toggle {
+  border: none;
+  background: none;
+  padding: 0;
+  margin-left: 4px;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 11.5px;
+}
+.item .tag-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+/* A static reference tag ("근거: ..."), not a click-to-expand toggle - the
+   item's own instruction text already carries the actual guidance, so this
+   only needs to say where it came from, always visible, no extra click. */
+.item .citation-pill {
+  display: inline-block;
+  border: 1px solid var(--citation-border);
+  background: var(--citation-bg);
+  padding: 3px 8px;
+  border-radius: 6px;
+  color: var(--citation-fg);
+  font-size: 11px;
+  margin-top: 6px;
+}
+.item .note-field {
+  margin-top: 8px;
+}
+
+/* ---- Dashboard table rows ---- */
+tr.row:hover td {
+  background: var(--paper-chip);
+}
+tr.row td {
+  transition: background 0.1s ease;
+}
+
+select.status-select {
+  height: 30px;
+  font-size: 12px;
+  min-width: 72px;
+  flex-shrink: 0;
+  border-radius: 6px;
+  border: 1px solid var(--rule);
+  background: var(--input-bg);
+  color: var(--ink);
+}
+
+/* ---- Forms ---- */
+label.field-label {
+  font-size: 11.5px;
+  color: var(--muted);
+  display: block;
+  margin-bottom: 5px;
+}
+
+textarea,
+input[type="text"],
+input[type="number"],
+select {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: inherit;
+  font-size: 13px;
+  padding: 8px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--rule);
+  background: var(--input-bg);
+  color: var(--ink);
+}
+
+textarea {
+  resize: vertical;
+}
+
+textarea.invalid {
+  border-color: var(--invalid-border);
+}
+
+.field-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(135px, 1fr));
+  gap: 10px 12px;
+  margin-bottom: 13px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+}
+
+button {
+  font-family: inherit;
+}
+
+button.primary {
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: 8px;
+  border: 1px solid var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+  transition: opacity 0.15s ease;
+}
+button.primary:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+button.ghost {
+  padding: 9px 14px;
+  font-size: 12.5px;
+  cursor: pointer;
+  border-radius: 8px;
+  border: 1px solid var(--rule);
+  background: var(--paper-chip);
+  color: var(--ink);
+}
+button.ghost.selected {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+button.ghost:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+button.link {
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-size: 12.5px;
+  cursor: pointer;
+  padding: 4px 0;
+}
+
+.button-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 13px;
+}
+
+/* ---- Emergency acknowledge modal ---- */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  z-index: 50;
+}
+.modal-card {
+  background: var(--paper);
+  border: 1px solid var(--risk-emergency);
+  border-radius: 12px;
+  padding: 18px;
+  max-width: 420px;
+  width: 100%;
+}
+
+/* ---- Status placeholders ---- */
+.status-block {
+  padding: 20px 4px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.status-block.error {
+  color: var(--danger-fg);
+}
+
+table.plain {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+table.plain th {
+  text-align: left;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--faint);
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--rule);
+}
+table.plain td {
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--rule);
+  vertical-align: top;
+}
+table.plain tr:last-child td {
+  border-bottom: none;
+}

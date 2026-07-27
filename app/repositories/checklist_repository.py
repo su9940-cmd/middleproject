@@ -90,14 +90,19 @@ class ChecklistRepository:
     async def update_worker_response(
         self, checklist_id: str, worker_response: dict[str, Any]
     ) -> ChecklistORM:
-        """Apply a worker's per-item statuses and note to a saved checklist.
+        """Apply a worker's per-item statuses/notes and the overall note to a saved checklist.
 
-        `worker_response` is exactly what `WorkerInterruptScreen.handleSubmit`
-        (role E) sends: `{"item_statuses": {checklist_item_id: status}, "note": str, ...}`.
-        `item_statuses` only carries a status per item, not the full item
-        object, so each stored item is updated in place (status only) rather
-        than replaced - that's what keeps `title`/`instruction`/`source_ids`/etc.
-        from being dropped.
+        `worker_response` is `state["worker_response"]` - the validated
+        `WorkerResumePayload` dump (`app.models.worker`) produced by
+        `app.nodes.worker_interrupt`: `item_results: [{checklist_item_id,
+        status, worker_note}]` plus a top-level `overall_note`. The older
+        compact `{"item_statuses": {id: status}, "note": str}` shape (the
+        pre-normalization raw resume payload) is still accepted directly,
+        since callers may invoke this repository outside the graph.
+
+        Only `status`/`worker_note` are merged into each stored item (not the
+        whole item object), so `title`/`instruction`/`citations`/etc. are
+        never dropped.
         """
         try:
             stmt = select(ChecklistORM).where(ChecklistORM.checklist_id == checklist_id)
@@ -107,20 +112,23 @@ class ChecklistRepository:
             if not checklist:
                 raise DatabaseOperationError(f"Checklist {checklist_id} not found")
 
-            item_statuses = worker_response.get("item_statuses") or {}
-            if not item_statuses:
-                item_statuses = {
-                    item.get("checklist_item_id"): item.get("status")
-                    for item in (worker_response.get("item_results") or [])
-                    if isinstance(item, dict) and item.get("checklist_item_id")
-                }
+            item_updates: dict[str, dict[str, Any]] = {}
+            for item in worker_response.get("item_results") or []:
+                if isinstance(item, dict) and item.get("checklist_item_id"):
+                    item_updates[item["checklist_item_id"]] = {
+                        "status": item.get("status"),
+                        "worker_note": item.get("worker_note"),
+                    }
+            for item_id, status in (worker_response.get("item_statuses") or {}).items():
+                item_updates.setdefault(item_id, {})["status"] = status
+
             checklist.items = [
-                {**item, "status": item_statuses[item["checklist_item_id"]]}
-                if item.get("checklist_item_id") in item_statuses
+                {**item, **item_updates[item["checklist_item_id"]]}
+                if item.get("checklist_item_id") in item_updates
                 else item
                 for item in checklist.items
             ]
-            checklist.worker_note = worker_response.get("note")
+            checklist.worker_note = worker_response.get("overall_note") or worker_response.get("note")
             checklist.completed_at = datetime.now(timezone.utc)
 
             await self.session.commit()

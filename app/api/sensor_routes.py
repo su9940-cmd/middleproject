@@ -15,13 +15,15 @@ from fastapi.responses import JSONResponse
 from langgraph.graph.state import CompiledStateGraph
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agents.action_draft.maintenance_policy import build_maintenance_request_draft
 from app.core.db import get_db_session
 from app.core.enums import AlertStatus, MeasurementMode
-from app.core.ids import build_thread_id, generate_alert_id
+from app.core.ids import build_thread_id, generate_alert_id, generate_maintenance_request_id
 from app.models.sensor import SensorReading
 from app.nodes.persistence import save_alert_state, save_sensor_reading
 from app.repositories.alert_repository import AlertRepository
 from app.repositories.checklist_repository import ChecklistRepository
+from app.repositories.maintenance_repository import MaintenanceRequestRepository
 
 router = APIRouter(prefix="/sensors", tags=["Sensors"])
 
@@ -91,6 +93,14 @@ async def ingest_sensor_data(
             },
         )
 
+    # `action_draft_node` decides `requires_maintenance_request` (FR-14) but
+    # never mints an id for it - do that here, before `save_alert_state`, so
+    # the alert row and the draft row (created below) share the same
+    # deterministic `MR-{alert_id}` id instead of the alert pointing at
+    # nothing.
+    if result.get("requires_maintenance_request") and result.get("alert_id"):
+        result["maintenance_request_id"] = generate_maintenance_request_id(result["alert_id"])
+
     # Only persist an alert row once the graph has actually assigned a real
     # status - a plain NORMAL-with-no-open-alert reading stays silent (FR-05).
     if result.get("alert_status") not in (None, AlertStatus.NONE):
@@ -105,6 +115,21 @@ async def ingest_sensor_data(
     if is_awaiting_worker_response and final_checklist:
         await ChecklistRepository(session).save_checklist(final_checklist)
 
+        # `create_draft` is idempotent per `maintenance_request_id`, so a
+        # machine with several abnormal readings before the alert resolves
+        # safely reuses the same pending draft instead of duplicating it.
+        if result.get("requires_maintenance_request"):
+            draft = build_maintenance_request_draft(
+                maintenance_request_id=result["maintenance_request_id"],
+                alert_id=result["alert_id"],
+                machine_id=reading.machine_id,
+                machine_type=str(reading.machine_type),
+                risk_level=result.get("risk_level"),
+                maintenance_reason=final_checklist.get("maintenance_reason"),
+                manual_id=final_checklist.get("manual_id"),
+            )
+            await MaintenanceRequestRepository(session).create_draft(draft)
+
     return {
         "status": "success",
         "reading_id": reading.reading_id,
@@ -113,4 +138,5 @@ async def ingest_sensor_data(
         "alert_status": result.get("alert_status"),
         "awaiting_worker_response": is_awaiting_worker_response,
         "checklist_id": (final_checklist or {}).get("checklist_id"),
+        "maintenance_request_id": result.get("maintenance_request_id"),
     }

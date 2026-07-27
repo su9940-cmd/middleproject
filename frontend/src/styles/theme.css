@@ -1,0 +1,49 @@
+/*
+ * Dark, dense design language carried over from ChecklistScreen.jsx
+ * (the team's agreed reference component) — deliberately fixed dark, not
+ * OS-adaptive: the team repeatedly asked for a black background + small
+ * fonts across the whole review session, not a light/dark toggle.
+ */
+:root {
+  color-scheme: dark;
+
+  --bg: #0a0a0a;
+  --header-ink: #f0f0f0;
+  --header-muted: #b0b0b0;
+  --accent: #7fb2cf;
+  --accent-soft: #122530;
+  --accent-line: #2c4550;
+
+  --paper: #000000;
+  --paper-sunken: #141414;
+  --paper-chip: #2a2a2a;
+  --rule: #3a3a3a;
+  --ink: #f0f0f0;
+  --muted: #b0b0b0;
+  --faint: #8a8a8a;
+
+  --input-bg: #1a1a1a;
+  --invalid-border: #b5533f;
+
+  /* Traffic-light risk stages (1=green ... 4=red triangle), exact colors
+     from the team's five_screen_flow_v9.html reference mock. Consumed
+     directly by Badge.jsx, not through generic .badge classes. */
+  --risk-normal: #639922;
+  --risk-normal-fg: #ffffff;
+  --risk-caution: #ef9f27;
+  --risk-caution-fg: #ffffff;
+  --risk-warning: #f4a9c7;
+  --risk-warning-fg: #4a1b28;
+  --risk-emergency: #e24b4a;
+  --risk-emergency-fg: #ffffff;
+
+  /* Evidence/citation accent ("근거" button), also from the v9 reference. */
+  --citation-border: #d85a30;
+  --citation-bg: #2a1a15;
+  --citation-fg: #f0997b;
+
+  --success-bg: rgba(99, 153, 34, 0.16);
+  --success-fg: #8fce4a;
+  --danger-bg: rgba(226, 75, 74, 0.16);
+  --danger-fg: #f0897b;
+}

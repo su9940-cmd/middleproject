@@ -1,96 +1,201 @@
 # CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+`.gitignore` lists it under "Claude Code 전용 파일 (프로젝트 산출물 아님)", but it was already committed
+before that rule was added, so git still tracks it (see "Gitignore notes" below) — edits here will show
+up in `git status` until someone explicitly untracks it.
 
 ## Project overview
 
-This is a bootcamp/course "mid-term project" (중간프로젝트) predicting industrial accident risk from
-factory sensor telemetry, with the eventual goal of pairing the ML risk score with a LangChain/RAG
-agent that retrieves per-machine safety manuals. `pyproject.toml` already pulls in the full RAG stack
-(LangChain, Chroma/Pinecone/pgvector, HuggingFace + OpenAI + Ollama model integrations, `ragas` for
-eval), but as of this writing that agent code has not been written yet — the repo is still at the
-tabular-ML stage.
+**middle-project** ("산업 설비 안전 위험 통보 및 대응 시스템") is a closed-loop, multi-agent industrial
+safety system: factory sensor readings flow through an ML risk model, a deterministic risk/emergency
+policy, and a LangGraph pipeline that retrieves grounded SOP/legal guidance (RAG), drafts a worker
+checklist, validates it against the source documents, and pauses for a human worker to respond —
+optionally triggering an immediate re-measurement and/or a maintenance-request approval flow.
 
-`main.py` is currently just a placeholder (`print("Hello from middle-project!")`) and is not part of
-the real pipeline.
+This branch (`feature/agent-contract-integration`) is well past the original "tabular-ML only" stage
+described in older docs (`프로젝트_요약.md`, and the git history's early `data`/`rag` branches) — the
+full FastAPI + LangGraph backend in `app/` is implemented, tested, and runnable. Treat `프로젝트_요약.md`
+as a historical snapshot of the ML-only stage, not current state.
 
-## Important: local branch is behind `origin/data`
-
-The checked-out branch is `data`. The actual ML pipeline (notebooks + derived data) lives one commit
-ahead on `origin/data` and has **not been merged/pulled into this local branch**. If the notebooks or
-`data/processed_industrial_fire_ml.csv` referenced below are missing on disk, run:
-
-```
-git fetch origin
-git log --oneline data..origin/data   # inspect what's missing
-git merge origin/data                 # or rebase, per user preference — confirm before doing this
-```
-
-Do not assume the working tree matches `origin/data` without checking — always verify a file exists
-before editing or referencing it.
+`main.py` is the real FastAPI entrypoint (not a placeholder): it builds the DB tables and compiles the
+LangGraph safety graph once at startup (`lifespan`), then mounts the sensor/alert/worker/maintenance
+routers plus the `/demo` static HTML.
 
 ## Environment & commands
 
-Dependency/env management is via **uv** (`uv.lock` present, `requires-python = ">=3.13"`,
-`.python-version` pins 3.13).
+Dependency/env management is via **uv** (`uv.lock` present, `requires-python = ">=3.13"`).
 
 ```
-uv sync                 # install/sync all dependencies into .venv
-uv run python main.py   # run the placeholder entrypoint
-uv run jupyter lab      # open the notebooks (see Architecture below)
+uv sync                                   # install/sync all dependencies into .venv
+uv run uvicorn main:app --reload          # run the FastAPI app (http://127.0.0.1:8000)
+uv run pytest                             # run the full test suite (tests/unit + tests/integration)
+uv run python -m scripts.index_documents  # index data/sop + data/laws into Chroma (see RAG section)
+uv run jupyter lab                        # open the legacy ML notebooks
 ```
 
-There is no test suite, linter, or formatter configured in this repo (no pytest/ruff/mypy config) —
-don't assume one exists.
+Copy `.env.example` to `.env` to override defaults (SQLite DB path works out of the box with no setup).
+Secrets/config are read only from environment variables (`app/core/config.py`) — never hardcode paths
+or API keys.
 
-Secrets (API keys for OpenAI/Pinecone/etc.) belong in `.env`, which is gitignored; there is no
-`.env.example` committed yet.
+pytest config lives in `pyproject.toml` (`testpaths = ["tests"]`, `asyncio_mode = "auto"`). There is no
+configured linter/formatter (no ruff/mypy config) — don't assume one runs in CI.
 
-## Data & ML architecture
+## Architecture — LangGraph closed-loop safety pipeline
 
-Once `origin/data` is merged, the pipeline is two notebooks plus a raw data file:
+The graph is assembled in `app/graph/builder.py::build_safety_graph`, with per-role node
+implementations injected via a `GraphDependencies` dataclass (`default_graph_dependencies()` wires the
+real implementations; tests can swap in fakes). Shared state is the `SafetyState` `TypedDict`
+(`app/graph/state.py`) — every node reads/writes a subset of it and returns only the fields it changed.
 
-- **`data/industrial_fire_risk_data.csv`** — raw source data (~100k rows, 15-min interval readings):
-  `Date, Time, Factory, Region, Shift, Workers, Exp, Training, Temp, Pressure, Humidity, Vibration,
-  Speed, Age, Service_Days, Gas, Sparks, Alarm, Risk, Accident`. The original `Accident`/`Risk`/`Alarm`
-  columns are the dataset's built-in labels and are treated as **leakage columns** — never used as
-  model features.
+Flow:
 
-- **`industrial_fire_custom_accident_ml.ipynb`** (on `origin/data`) — the one-time training notebook:
-  1. Splits the raw factories into 4 synthetic machines (`M-0101` REACTOR, `M-0102` COMPRESSOR,
-     `M-0103` STORAGE_TANK, `M-0104` PUMP) via `machine_type_map`, and perturbs sensor columns per
-     machine type to give each a distinct failure signature.
-  2. Generates a synthetic label `custom_accident` from a per-machine-type logistic risk score
-     (different sensors/interactions matter for a reactor vs. a pump), **not** derived from the
-     original `Accident` column.
-  3. Time-orders the data and splits 70/15/15 into train/validation/test (no shuffling — this is a
-     temporal split, preserve that when touching it).
-  4. Trains Logistic Regression vs. Random Forest, picks the model by validation PR-AUC.
-  5. Chooses an alert **threshold** on the validation set by maximizing F2 (recall-weighted, since
-     missed accidents are costlier than false alarms) — the test set is never used for threshold
-     selection, only final reporting.
-  6. Persists three artifacts consumed by the demo notebook: `data/processed_industrial_fire_ml.csv`,
-     `models/industrial_fire_accident_pipeline.joblib`, and
-     `models/industrial_fire_accident_metadata.json` (feature list, thresholds, test metrics,
-     `manual_id` per machine type for future RAG lookup). These are gitignored — they are build
-     outputs, regenerate by rerunning this notebook rather than trying to hand-edit them.
+```
+START -> predictive_agent -> risk_policy
+                                 |-- NORMAL -----------------------------------> recovery_node -> END
+                                 '-- CAUTION/WARNING/EMERGENCY -> alert_lifecycle_node
+                                                                       |-- always: rag_agent -\
+                                                                       |-- always: memory_agent -+-> context_guard
+                                                                       '-- EMERGENCY only: send_immediate_alert -> worker_interrupt
+                                 context_guard -> action_draft_node -> validator_agent
+                                                       ^                    |-- PASSED -> worker_interrupt -> request_immediate_recheck -> END
+                                                       '------ REVISE ------|  (max 2 attempts, then -> checklist_validation_failure -> END)
+                                                                            '-- error -> checklist_validation_failure -> END
+```
 
-- **`mock_safety_alert_demo.ipynb`** (on `origin/data`) — a read-only downstream demo. It loads the
-  three saved artifacts (fails fast with `FileNotFoundError` if they're missing — rerun the training
-  notebook first), scores 12 hand-written mock IoT events, and classifies each into
-  `정상/주의/경고/긴급` (normal/caution/warning/emergency):
-  - `정상`/`주의`/`경고` come from comparing the ML probability to `caution_threshold` /
-    `warning_threshold` from the metadata file.
-  - `긴급` is decided by hardcoded **per-machine-type emergency rules** (e.g. reactor temp ≥ 42,
-    compressor vibration ≥ 4.8) in `emergency_reason()` — these override the ML score entirely and
-    always win over a lower ML-based status.
-  - Each abnormal status maps to a fixed Korean checklist per machine type (`actions` dict), plus a
-    `manual_id` (e.g. `reactor_safety_manual`) intended as the key for a future RAG manual lookup —
-    no actual document retrieval is implemented yet.
+Key mechanics:
+- **Fan-out/fan-in**: `alert_lifecycle_node` fans out to `rag_agent` + `memory_agent` (and, for
+  EMERGENCY, also `send_immediate_alert` in parallel — the pre-notification never waits on the
+  checklist). `context_guard` is the fan-in barrier that fails fast if either branch didn't produce
+  usable output before `action_draft_node` runs.
+- **Revision loop**: `validator_agent` never edits worker-facing text itself — it either passes the
+  draft through (`PASSED`) or returns structured `validation_feedback` for `action_draft_node` to
+  revise (`REVISE`, capped at `MAX_VALIDATION_ATTEMPTS = 2` before hard-failing).
+- **Human-in-the-loop**: `worker_interrupt` (`app/nodes/worker_interrupt.py`) calls LangGraph's
+  `interrupt()` and pauses the run. `POST /worker/checklists/{id}/respond` resumes it with
+  `Command(resume=...)`, using `thread_id = f"{machine_id}:{alert_id}"` (`app/core/ids.py`) to find the
+  paused run via the checkpointer (`InMemorySaver` by default — state is lost on process restart).
+- **Error handling convention**: nodes generally catch their own exceptions and return
+  `{"error_code": ..., "error_message": ..., "failed_node": ...}` rather than raising, so routing
+  functions (`_route_after_*` in `builder.py`) can short-circuit to `END`. `action_draft`, `validator`,
+  and `memory_agent` are exceptions — they `raise` typed `ApplicationError` subclasses instead, and the
+  API layer (or a wrapping closure, see `_default_memory_agent`'s `use_database_memory` path) converts
+  those to the same error-field shape.
+- Every reading — normal or not — arrives at `POST /sensors/ingest` (`app/api/sensor_routes.py`);
+  there's no real IoT hardware, `measurement_mode` (`PERIODIC` vs `IMMEDIATE_RECHECK`) distinguishes a
+  fresh periodic reading from a worker-triggered recheck.
+
+## Agents & nodes
+
+- **`app/agents/predictive.py`** — wraps `MLService`/`ml_service.predict_risk_score` to produce
+  `ml_risk_score`, `model_version`, `prediction_thresholds` from a persisted model artifact.
+- **`app/nodes/risk_policy.py`** — deterministic, no LLM. Combines the ML score against
+  `caution`/`warning` thresholds with **per-machine-type hardcoded emergency rules**
+  (`EMERGENCY_RULES`, e.g. reactor `temperature >= 42`, compressor `vibration >= 4.8`) that always
+  override the ML-derived level. `POLICY_VERSION = "demo-risk-policy-v1"`.
+- **`app/nodes/alert_lifecycle.py`** — owns `alert_status`/`repeat_count` transitions for
+  abnormal/emergency readings (the 7-state lifecycle in `AlertStatus`); `ESCALATED` never auto-clears,
+  only a manager decision does. Does **not** yet consider `memory_context` for escalation — noted as a
+  known gap in its own docstring.
+- **`app/nodes/recovery.py`** — the NORMAL-route counterpart: walks an active alert through
+  `MONITORING` (2 consecutive normal readings) to `RESOLVED` without sending any notification.
+- **`app/agents/rag.py`** (`rag_agent`) — builds a query from machine/risk/sensor context, retrieves
+  from the Chroma vector store (`app/services/rag_service.py`, `vector_store_factory.py`), and requires
+  at least one `document_type == "sop"` hit or fails with `RAG_RETRIEVAL_FAILED`. Falls back to reading
+  `data/sop/{manual_id}.md` + up to 2 `data/laws/*.md` files directly off disk if the vector store call
+  raises — this keeps the local demo runnable without a pre-built Chroma index.
+- **`app/agents/memory/agent.py`** (`MemoryAgent`) — queries 4 repositories (alert/checklist/worker
+  response/maintenance) for one `machine_id` and returns `memory_context` (unresolved count, previous
+  risk level, repeat count, `is_risk_escalated`, `is_repeat_limit_exceeded` at `REPEAT_LIMIT_THRESHOLD =
+  3`, etc.). Raises `MemoryLookupError` on failure — callers must catch it, it never returns an error
+  dict itself. Note: `default_graph_dependencies()` only wires the real DB-backed
+  `backend_memory_agent` when `use_database_memory=True`; otherwise it substitutes an empty stub
+  context (`_default_memory_agent`).
+- **`app/agents/action_draft/`** (`ActionDraftAgent`) — turns RAG documents + memory context into a
+  `final_checklist`-shaped `action_draft`. `phase_selector.py` picks `INITIAL`/`FOLLOW_UP`/`EMERGENCY`
+  by pure rule (no LLM); `draft_composer.py` calls an LLM (`llm_client.py`) to compose grounded items
+  and falls back to a deterministic SOP-derived checklist if the LLM is unavailable — the graph's
+  default dependency injects a client that always fails (`_FallbackLLMClient`) so the demo works
+  without an API key. `maintenance_policy.py` decides `requires_maintenance_request`. On a revision
+  pass it consumes `validation_feedback` + the previous draft to produce a new `version`.
+- **`app/agents/validator/`** (`ValidatorAgent`) — never rewrites instructions. Runs deterministic
+  checks (`source_grounding.py` filters ungrounded items, `deduplicator.py` merges duplicates,
+  `expression_filter.py` blocks disallowed legal-conclusion phrasing) and only passes if all clear; LLM
+  `safety_judge.py` output is attached as `safety_review` but is **advisory only** — it doesn't gate
+  pass/fail.
+- **`app/nodes/notification.py`** (`send_immediate_alert`) — EMERGENCY-only pre-notification via Slack
+  webhook (`SLACK_ALERT_WEBHOOK_URL`), sent in parallel with RAG/Memory, before any checklist exists.
+  Failure is swallowed to `notification_status=FAILED` — it must never block the RAG/Memory/checklist
+  path.
+- **`app/nodes/worker_interrupt.py`** — human-in-the-loop pause; validates the resumed payload against
+  `WorkerResumePayload` and cross-checks `alert_id`/`checklist_id`/item IDs against the exact
+  `final_checklist` that was shown, rejecting mismatches as `WorkerResponseValidationError`. Also
+  normalizes the UI's compact `item_statuses` map into the canonical `item_results` shape.
+- **`app/nodes/immediate_recheck.py`** — after a worker responds, moves the alert to
+  `WAITING_RECHECK` and asks `app/services/iot_service.py` to request a new reading; the actual new
+  reading arrives later as a normal `POST /sensors/ingest` call with `measurement_mode=IMMEDIATE_RECHECK`.
+
+## API surface (`app/api/`)
+
+- `POST /sensors/ingest` — ingest one reading, resume/open the machine's alert, run the graph.
+- `GET /alerts/active/{machine_id}`, `GET /alerts/{alert_id}/checklist` — alert/checklist lookup.
+- `POST /worker/checklists/{checklist_id}/respond` — resume a paused graph run with a worker response.
+- `GET /maintenance-requests/pending`, `POST /maintenance-requests/{id}/decision` — manager
+  approve/reject/defer flow for FR-14 (added 2026-07-24, not in the original 12-role contract; DB rows
+  use camelCase on the wire via `alias_generator=to_camel`, snake_case internally).
+- `/demo` — serves `demo/worker-manager-flow.html`, a static mock UI wired to call these APIs directly
+  (CORS is opened for `localhost:8000`/`127.0.0.1:8000`/`file://` for this reason).
+
+## Data & persistence
+
+- **DB**: SQLAlchemy async models are the source of truth (`app/models/orm_models.py`); `db/schema.sql`
+  is a hand-maintained mirror for reference only — if the two disagree, `orm_models.py` wins. No
+  Alembic migrations yet (MVP stage) — tables are created via `Base.metadata.create_all()` at startup.
+  Tables: `sensor_readings` (every reading, not just abnormal), `alerts`, `checklists`,
+  `maintenance_requests`.
+- **`data/machine_profiles.json`** — the 4 fixed demo machines (`M-0101` REACTOR, `M-0102` COMPRESSOR,
+  `M-0103` STORAGE_TANK, `M-0104` PUMP), each with its `manual_id`/`manual_path`, hazards, emergency
+  rule descriptions, and applicable Korean safety-law references. `SensorReading` validates
+  `machine_id`↔`machine_type` against this same fixed mapping (`app/models/sensor.py::MACHINE_ID_TYPE_MAP`).
+- **RAG documents**: `data/sop/*.md` (per-machine-type safety manuals) and `data/laws/*.md` (산업안전보건
+  기준에 관한 규칙 조문). Indexed into Chroma via `scripts/index_documents.py` with 3 comparable chunking
+  strategies (`section` / `fixed_512_50` / `fixed_1024_100`), each into its own collection
+  (`safety_documents__<strategy>`); evaluation methodology and current numbers are in
+  `docs/rag_evaluation.md` — that doc flags its numbers as **stale** (pre-dates splitting the SOP/law
+  retrieval budget) and says to rerun `scripts/compare_chunking.py` before citing them.
+
+## ML pipeline (legacy notebooks, still the source of the model artifacts)
+
+`industrial_fire_custom_accident_ml.ipynb` trains the risk model from
+`data/industrial_fire_risk_data.csv` (~100k synthetic factory readings; original `Accident`/`Risk`/`Alarm`
+columns are treated as leakage and never used as features) and persists
+`models/industrial_fire_accident_pipeline.joblib` + `models/industrial_fire_accident_metadata.json`
+(feature list, `caution`/`warning` thresholds chosen by max F2 on the validation set, `manual_id` per
+machine type). These are consumed by `app/services/ml_service.py` (`predictive_agent`'s dependency) —
+regenerate by rerunning the notebook, don't hand-edit the artifacts. `mock_safety_alert_demo.ipynb` is
+an older read-only demo of the same scoring logic, now superseded by the live `predictive_agent` +
+`risk_policy` nodes.
+
+## Testing
+
+`tests/unit/` covers individual nodes/agents/repositories in isolation; `tests/unit/test_common_contracts.py`
+freezes shared enum values and error codes that other components depend on — treat changes there as
+breaking. `tests/integration/` exercises multi-node flows (`test_safety_graph.py`,
+`test_worker_interrupt_flow.py`, `test_action_draft_validator_contract.py`, etc.) end-to-end through the
+compiled graph. Several commit messages and docstrings refer to a "shared contract" (numbered sections,
+e.g. "계약 8절", "계약 10절") — this is the team's cross-role interface agreement; when a docstring cites
+a section number, treat it as intentional and don't casually change that field's shape without checking
+what else depends on it.
 
 ## Gitignore notes worth knowing
 
-- `dd.ipynb` and `중간프로젝트_지침서.docx` (the assignment brief) are intentionally gitignored as
-  personal/local files — don't try to recreate or commit them.
-- `data/*.parquet` and everything under `models/` are regenerated artifacts, not source — treat the
-  training notebook as their single source of truth.
+- `docs/`, `CLAUDE.md`, and `_debrief/` are listed as local/Claude-Code-only material, not project
+  deliverables. `docs/` and `_debrief/` were never committed, so they're genuinely absent from a fresh
+  clone. `CLAUDE.md` is the exception — it was committed once before this rule existed, so it's still
+  git-tracked; the ignore rule only stops *new* untracked copies from being added elsewhere, it doesn't
+  retroactively hide this file from `git status`/`git diff`.
+- `chroma_db/` (vector store data) and `models/*_metadata.json` (except the checked-in
+  `industrial_fire_accident_metadata.json`) are regenerated artifacts.
+- `dd.ipynb` and `중간프로젝트_지침서.docx` are personal/assignment files, intentionally excluded.
+- `*.db`/`*.sqlite*` are gitignored — the default SQLite DB file is local-only and rebuilt from schema
+  on each fresh `uv run uvicorn ...` startup.

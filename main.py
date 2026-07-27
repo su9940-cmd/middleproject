@@ -44,14 +44,20 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Allow the standalone demo HTML to call the local API during development.
+# Allow the standalone demo HTML, the Vite dev server, and (for temporarily
+# sharing a demo) a Cloudflare quick tunnel to call the local API. The regex
+# is scoped to *.trycloudflare.com specifically for that demo-sharing case -
+# widen it only if that's a deliberate deployment decision, not by accident.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://127.0.0.1:8000",
         "http://localhost:8000",
+        "http://127.0.0.1:5173",
+        "http://localhost:5173",
         "null",  # file:// demo opened directly in a browser
     ],
+    allow_origin_regex=r"https://.*\.trycloudflare\.com",
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],

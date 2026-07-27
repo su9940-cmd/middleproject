@@ -29,7 +29,21 @@ _THRESHOLDS = {"caution": 0.145, "warning": 0.29}
 
 
 def _install_fake_downstream_agents(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Stand in for roles A/B's nodes so the graph can run past `alert_lifecycle_node`."""
+    """Stand in for roles A/B's nodes so the graph can run past `alert_lifecycle_node`.
+
+    Note: `app.graph.builder` actually imports `ActionDraftAgent`/`ValidatorAgent`
+    from `app.agents.action_draft`/`app.agents.validator` (and, with
+    `use_database_memory=True`, `backend_memory_agent` from
+    `app.agents.memory.backend_adapter`) - none of those match the module
+    paths faked in below (`app.nodes.action_draft`, top-level
+    `app.agents.memory`). Whichever test runs first in the whole `pytest`
+    process binds `app.graph.builder`'s real imports permanently (module
+    caching), so in a full-suite run these fakes don't actually intercept
+    anything past `rag_agent`; the tests below exercise the real
+    `ActionDraftAgent`/`ValidatorAgent`/`backend_memory_agent` implementations.
+    Left in place rather than fixed here since untangling it is outside this
+    change's scope.
+    """
 
     rag_module = types.ModuleType("app.agents.rag")
     rag_module.rag_agent = lambda state: {  # type: ignore[attr-defined]
@@ -281,3 +295,51 @@ def test_responding_to_a_non_pending_checklist_is_rejected(monkeypatch, client):
 def test_responding_to_an_unknown_checklist_is_a_404(client):
     resp = client.post("/worker/checklists/CL-does-not-exist-V1/respond", json={"item_statuses": {}})
     assert resp.status_code == 404
+
+
+def test_emergency_reading_creates_a_pending_maintenance_request_draft(monkeypatch, client):
+    """`evaluate_maintenance_need` (app.agents.action_draft.maintenance_policy)
+    always requires maintenance for EMERGENCY - ingest must turn that into an
+    actual FR-14 draft row, not just carry the flag on the alert."""
+
+    monkeypatch.setattr(
+        "app.services.ml_service.predict_risk_score",
+        lambda **kwargs: (0.01, "test-v1", _THRESHOLDS),
+    )
+
+    ingest_resp = client.post("/sensors/ingest", json=_payload())
+    assert ingest_resp.status_code == 201
+    body = ingest_resp.json()
+    alert_id = _alert_id_from_checklist_id(body["checklist_id"])
+    assert body["maintenance_request_id"] == f"MR-{alert_id}"
+
+    pending_resp = client.get("/maintenance-requests/pending")
+    assert pending_resp.status_code == 200
+    pending = pending_resp.json()
+    assert len(pending) == 1
+    draft = pending[0]
+    assert draft["maintenanceRequestId"] == f"MR-{alert_id}"
+    assert draft["alertId"] == alert_id
+    assert draft["machineId"] == "M-0101"
+    assert draft["machineType"] == "REACTOR"
+    assert draft["status"] == "PENDING"
+    assert "긴급 상태" in draft["recommendation"]
+
+
+def test_normal_reading_creates_no_maintenance_request_draft(monkeypatch, client):
+    """A NORMAL reading never reaches `action_draft_node` at all (routed to
+    `recovery_node` instead) - no draft should appear."""
+
+    monkeypatch.setattr(
+        "app.services.ml_service.predict_risk_score",
+        lambda **kwargs: (0.01, "test-v1", _THRESHOLDS),
+    )
+
+    ingest_resp = client.post("/sensors/ingest", json=_payload(temperature=20.0))
+    assert ingest_resp.status_code == 201
+    body = ingest_resp.json()
+    assert body["risk_level"] == RiskLevel.NORMAL
+    assert body["maintenance_request_id"] is None
+
+    pending_resp = client.get("/maintenance-requests/pending")
+    assert pending_resp.json() == []
