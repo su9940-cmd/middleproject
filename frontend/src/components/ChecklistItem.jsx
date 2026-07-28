@@ -66,7 +66,15 @@ function citationLabel(citations) {
  * plain-language summary, so the reference stays scannable by default and
  * the actual legal content is one click away, not shown twice at once.
  */
-export default function ChecklistItem({ item, status, note, onStatusChange, onNoteChange, readOnly }) {
+export default function ChecklistItem({
+  item,
+  status,
+  note,
+  onStatusChange,
+  onNoteChange,
+  readOnly,
+  showCitations = true,
+}) {
   const [lawExpanded, setLawExpanded] = useState(false);
   const citations = item.citations || [];
   const lawCitations = citations.filter((c) => c.document_type !== "sop");
@@ -85,7 +93,7 @@ export default function ChecklistItem({ item, status, note, onStatusChange, onNo
             {item.required && <Badge level="chip">필수</Badge>}
             {item.previously_failed && <Badge level="danger">이전 실패 이력</Badge>}
           </div>
-          {citations.length > 0 &&
+          {showCitations && citations.length > 0 &&
             (lawCitations.length > 0 ? (
               <button type="button" className="citation-pill" onClick={() => setLawExpanded((v) => !v)}>
                 근거: {citationLabel(citations)} {lawExpanded ? "▲" : "▼"}

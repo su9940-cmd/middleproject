@@ -269,6 +269,44 @@ a {
 .alert-list-item .row-meta .sep {
   color: var(--rule);
 }
+.sensor-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 10px;
+  margin-top: 9px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--paper-sunken);
+  color: var(--muted);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+.sensor-summary span:first-child {
+  width: 100%;
+  color: var(--ink);
+  font-weight: 600;
+}
+.demo-reset-button {
+  position: fixed;
+  right: 18px;
+  bottom: 16px;
+  z-index: 20;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: var(--paper);
+  color: var(--faint);
+  font-size: 11px;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 8%);
+}
+.demo-reset-button:hover:not(:disabled) {
+  color: var(--ink);
+  border-color: var(--muted);
+}
+.demo-reset-button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
 
 /* ---- Risk-stage badges (1-4, per five_screen_flow_v9.html) ---- */
 .risk-badge {

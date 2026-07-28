@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 from langgraph.graph.state import CompiledStateGraph
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,8 +24,44 @@ from app.nodes.persistence import save_alert_state, save_sensor_reading
 from app.repositories.alert_repository import AlertRepository
 from app.repositories.checklist_repository import ChecklistRepository
 from app.repositories.maintenance_repository import MaintenanceRequestRepository
+from app.repositories.sensor_repository import SensorRepository
 
 router = APIRouter(prefix="/sensors", tags=["Sensors"])
+
+
+@router.get("/latest/{machine_id}")
+async def get_latest_sensor_reading(
+    machine_id: str,
+    session: AsyncSession = Depends(get_db_session),
+) -> Any:
+    """Return the last persisted reading so the dashboard survives refreshes."""
+
+    reading = await SensorRepository(session).get_latest_by_machine(machine_id)
+    if reading is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No sensor reading found for machine {machine_id}",
+        )
+    return {
+        "reading_id": reading.reading_id,
+        "machine_id": reading.machine_id,
+        "machine_type": reading.machine_type.value,
+        "measured_at": reading.measured_at,
+        "measurement_mode": reading.measurement_mode.value,
+        "temperature": reading.temperature,
+        "pressure": reading.pressure,
+        "humidity": reading.humidity,
+        "vibration": reading.vibration,
+        "speed": reading.speed,
+        "age": reading.age,
+        "service_days": reading.service_days,
+        "gas": reading.gas,
+        "sparks": reading.sparks,
+        "shift": reading.shift.value,
+        "experience": reading.experience.value,
+        "training": reading.training.value,
+        "created_at": reading.created_at,
+    }
 
 
 def get_safety_graph(request: Request) -> CompiledStateGraph:
@@ -134,8 +170,10 @@ async def ingest_sensor_data(
         "status": "success",
         "reading_id": reading.reading_id,
         "thread_id": thread_id,
+        "alert_id": result.get("alert_id"),
         "risk_level": result.get("risk_level"),
         "alert_status": result.get("alert_status"),
+        "repeat_count": result.get("repeat_count", 0),
         "awaiting_worker_response": is_awaiting_worker_response,
         "checklist_id": (final_checklist or {}).get("checklist_id"),
         "maintenance_request_id": result.get("maintenance_request_id"),

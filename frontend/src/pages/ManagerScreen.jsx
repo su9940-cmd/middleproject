@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import Badge from "../components/Badge.jsx";
 import ChecklistItem from "../components/ChecklistItem.jsx";
+import LegalReferences from "../components/LegalReferences.jsx";
 import { LoadingBlock, ErrorBlock, EmptyBlock } from "../components/StatusBlock.jsx";
 import { getActiveAlert, getAlertChecklist } from "../api/alerts.js";
 import { decideMaintenanceRequest, listPendingMaintenanceRequests } from "../api/maintenance.js";
@@ -102,6 +103,18 @@ export default function ManagerScreen() {
             <Badge level={alert.risk_level} />
           </div>
 
+          <LegalReferences
+            compact
+            references={Array.from(
+              new Map(
+                [
+                  ...(checklist.supporting_references || []),
+                  ...(checklist.items || []).flatMap((item) => item.citations || []),
+                ].map((reference) => [reference.source_key || reference.source_id, reference]),
+              ).values(),
+            )}
+          />
+
           {checklist.worker_note && (
             <>
               <p className="section-title">작업자 메모 (전체)</p>
@@ -118,6 +131,7 @@ export default function ManagerScreen() {
                 status={item.status}
                 note={item.worker_note}
                 readOnly
+                showCitations={false}
               />
             ))}
           </div>

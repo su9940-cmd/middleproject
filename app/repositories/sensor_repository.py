@@ -46,3 +46,21 @@ class SensorRepository:
                 f"Failed to query sensor reading: {exc}",
                 details={"reading_id": reading_id},
             ) from exc
+
+    async def get_latest_by_machine(self, machine_id: str) -> SensorReadingORM | None:
+        """Fetch the most recently received reading for a machine."""
+        try:
+            stmt = (
+                select(SensorReadingORM)
+                .where(SensorReadingORM.machine_id == machine_id)
+                .order_by(SensorReadingORM.measured_at.desc(), SensorReadingORM.created_at.desc())
+                .limit(1)
+            )
+            result = await self.session.execute(stmt)
+            return result.scalar_one_or_none()
+        except Exception as exc:
+            logger.error("Failed to fetch latest sensor reading for %s: %s", machine_id, exc)
+            raise DatabaseOperationError(
+                f"Failed to query latest sensor reading: {exc}",
+                details={"machine_id": machine_id},
+            ) from exc

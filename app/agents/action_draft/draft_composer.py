@@ -23,6 +23,9 @@ from app.agents.action_draft.schemas import DraftedChecklist
 from app.core.enums import RiskLevel
 
 
+MAX_CHECKLIST_ITEMS = 5
+
+
 _SYSTEM_PROMPT = """\
 당신은 산업안전 체크리스트 초안 작성 보조자입니다.
 
@@ -35,6 +38,14 @@ _SYSTEM_PROMPT = """\
 6. 과거 실패한 조치는 previously_failed=true로 표시하세요.
 7. Validator 피드백이 있으면 모든 지적 사항을 반영해 이전 초안을 수정하세요.
 8. 출력은 지정된 JSON 스키마를 정확히 따라야 합니다.
+"""
+
+_CONCISE_ACTION_RULES = """
+Additional output rules:
+- Return at most 5 executable checklist actions.
+- Keep each instruction to one or two short sentences (maximum 180 characters).
+- Do not copy symptom/background/manual introduction sections into an action.
+- Every action must begin with a concrete worker verb such as 확인, 차단, 보고, 점검, or 대피.
 """
 
 
@@ -82,18 +93,22 @@ def compose_llm_draft(
 
     try:
         raw_response = llm.generate_structured(
-            system_prompt=_SYSTEM_PROMPT,
+            system_prompt=_SYSTEM_PROMPT + _CONCISE_ACTION_RULES,
             user_prompt=user_prompt,
             response_schema=DraftedChecklist,
         )
     except Exception:  # The injected client owns provider-specific exceptions.
-        items = _fallback_from_documents(document_index, memory_context, risk_level)
+        items = _limit_checklist_items(
+            _fallback_from_documents(document_index, memory_context, risk_level)
+        )
         return items, "LLM 호출 실패 - SOP 원문 기반 fallback", True, supporting_references
 
     try:
         parsed = DraftedChecklist.model_validate(json.loads(raw_response))
     except (json.JSONDecodeError, ValidationError, TypeError):
-        items = _fallback_from_documents(document_index, memory_context, risk_level)
+        items = _limit_checklist_items(
+            _fallback_from_documents(document_index, memory_context, risk_level)
+        )
         return items, "LLM 응답 검증 실패 - SOP 원문 기반 fallback", True, supporting_references
 
     items = _apply_safety_guards(
@@ -101,8 +116,11 @@ def compose_llm_draft(
         document_index=document_index,
         memory_context=memory_context,
     )
+    items = _limit_checklist_items(items)
     if not items:
-        items = _fallback_from_documents(document_index, memory_context, risk_level)
+        items = _limit_checklist_items(
+            _fallback_from_documents(document_index, memory_context, risk_level)
+        )
         return (
             items,
             "LLM 조치가 근거 검증에서 모두 제외됨 - SOP 원문 기반 fallback",
@@ -111,6 +129,25 @@ def compose_llm_draft(
         )
 
     return items, parsed.summary, False, supporting_references
+
+
+def _limit_checklist_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep the most important five actions while preserving source order."""
+
+    if len(items) <= MAX_CHECKLIST_ITEMS:
+        return items
+
+    priority_rank = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}
+    ranked_indexes = sorted(
+        range(len(items)),
+        key=lambda index: (
+            not bool(items[index].get("required", False)),
+            priority_rank.get(str(items[index].get("priority", "MEDIUM")).upper(), 1),
+            index,
+        ),
+    )
+    selected_indexes = set(ranked_indexes[:MAX_CHECKLIST_ITEMS])
+    return [item for index, item in enumerate(items) if index in selected_indexes]
 
 
 def _build_document_index(
@@ -238,7 +275,29 @@ def _split_into_steps(section_text: str) -> list[str]:
         match = re.match(r"^\d+\.\s+(.*\S)\s*$", line.strip())
         if match:
             steps.append(match.group(1))
-    return steps
+    if steps:
+        return steps
+
+    # Prose-only SOP chunks are kept as one item when short, but long symptom
+    # or background paragraphs are split into sentence-sized actions.
+    prose = "\n".join(
+        line for line in section_text.splitlines() if not line.lstrip().startswith("#")
+    ).strip()
+    if len(prose) <= 220:
+        return []
+    sentences = re.split(r"(?<=[.!?。！？])\s+|(?<=다\.)\s+", prose)
+    return [sentence.strip() for sentence in sentences if sentence.strip()]
+
+
+def _compact_instruction(text: str, limit: int = 180) -> str:
+    """Bound fallback text while keeping a complete leading instruction."""
+
+    normalized = re.sub(r"\s+", " ", text).strip()
+    if len(normalized) <= limit:
+        return normalized
+    boundary = max(normalized.rfind(".", 0, limit), normalized.rfind("다.", 0, limit))
+    cutoff = boundary if boundary >= 80 else limit
+    return normalized[:cutoff].rstrip() + "…"
 
 
 def _step_title(step_text: str, limit: int = 40) -> str:
@@ -296,6 +355,7 @@ def _fallback_from_documents(
         steps = _split_into_steps(section_text) or [section_text]
 
         for step_index, step_text in enumerate(steps, start=1):
+            step_text = _compact_instruction(step_text)
             action_id, item_id = _stable_ids([source_key, str(step_index)], step_text)
             if item_id in seen_item_ids:
                 continue
@@ -318,6 +378,7 @@ def _fallback_from_documents(
 
     remaining = [item for item in candidates if not (item["_comparable_ids"] & completed)]
     chosen = remaining if remaining else candidates
+    chosen = _limit_checklist_items(chosen)
     for item in chosen:
         item.pop("_comparable_ids", None)
     return chosen

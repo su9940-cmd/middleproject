@@ -2,11 +2,12 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import Badge from "../components/Badge.jsx";
 import ChecklistItem from "../components/ChecklistItem.jsx";
+import LegalReferences from "../components/LegalReferences.jsx";
 import { LoadingBlock, ErrorBlock, EmptyBlock } from "../components/StatusBlock.jsx";
 import { getActiveAlert, getAlertChecklist } from "../api/alerts.js";
 import { ingestSensorReading } from "../api/sensors.js";
 import { submitChecklistResponse } from "../api/worker.js";
-import { machineById, RISK_LEVEL_LABELS, ALERT_STATUS_LABELS, SAFE_RECHECK_PRESET } from "../constants/machines.js";
+import { machineById, RISK_LEVEL_LABELS, ALERT_STATUS_LABELS, buildNormalReading } from "../constants/machines.js";
 
 const POLL_INTERVAL_MS = 1500;
 
@@ -40,7 +41,6 @@ export default function WorkerScreen() {
 
   // "checklist" | "waiting_recheck" | "resolved"
   const [screenPhase, setScreenPhase] = useState("checklist");
-  const [allCompletedAtSubmit, setAllCompletedAtSubmit] = useState(false);
   const [finalAlert, setFinalAlert] = useState(null);
 
   const [submitting, setSubmitting] = useState(false);
@@ -70,8 +70,6 @@ export default function WorkerScreen() {
         if (!latest) return;
 
         if (latest.completed_at) {
-          const wasAllCompleted = (latest.items || []).every((item) => item.status === "COMPLETED");
-          setAllCompletedAtSubmit(wasAllCompleted);
           if (activeAlert.alert_status === "WAITING_RECHECK") {
             setScreenPhase("waiting_recheck");
           } else {
@@ -137,7 +135,7 @@ export default function WorkerScreen() {
           machine_type: machine.machineType,
           measured_at: new Date().toISOString(),
           measurement_mode: "IMMEDIATE_RECHECK",
-          ...SAFE_RECHECK_PRESET,
+          ...buildNormalReading(machine.machineType),
         });
         if (!cancelled) setRecheckAutoSubmitted(true);
       } catch (error) {
@@ -191,6 +189,14 @@ export default function WorkerScreen() {
   if (!alert) return <EmptyBlock label="이 설비에는 활성 경보가 없습니다." />;
 
   const items = checklist?.items || [];
+  const evidenceReferences = Array.from(
+    new Map(
+      [
+        ...(checklist?.supporting_references || []),
+        ...items.flatMap((item) => item.citations || []),
+      ].map((reference) => [reference.source_key || reference.source_id, reference]),
+    ).values(),
+  );
 
   // 보류 항목은 사유(note)가 없으면 제출할 수 없다.
   const allDecided =
@@ -204,9 +210,6 @@ export default function WorkerScreen() {
   async function handleSubmit() {
     setSubmitting(true);
     setSubmitError(null);
-    const wasAllCompleted = items.every((item) => getItemState(item.checklist_item_id).status === "COMPLETED");
-    setAllCompletedAtSubmit(wasAllCompleted);
-
     const payloadItems = items.map((item) => {
       const s = getItemState(item.checklist_item_id);
       return { checklistItemId: item.checklist_item_id, status: s.status, note: s.note };
@@ -255,6 +258,9 @@ export default function WorkerScreen() {
     return (
       <>
         <div className="page-header">
+          <Link to="/" style={{ display: "inline-block", marginBottom: 10 }}>
+            <button type="button" className="ghost">← 대시보드로 돌아가기</button>
+          </Link>
           <h1>즉시 재측정 대기 중 · {machine.displayName}</h1>
           <p>작업자 응답이 저장되고 설비가 재측정 대기 상태로 전환됐습니다.</p>
         </div>
@@ -289,16 +295,17 @@ export default function WorkerScreen() {
   }
 
   if (screenPhase === "resolved") {
-    const displayLevel = allCompletedAtSubmit
-      ? !finalAlert || finalAlert.alert_status === "MONITORING"
-        ? "NORMAL"
-        : alert.risk_level
-      : alert.risk_level;
+    // 보류 항목이 있더라도 제출 후 즉시 재측정을 수행하며,
+    // 화면의 최종 위험단계는 재측정 결과로만 결정함.
+    const displayLevel = finalAlert ? finalAlert.risk_level : "NORMAL";
     const isResolved = displayLevel === "NORMAL";
 
     return (
       <>
         <div className="page-header">
+          <Link to="/" style={{ display: "inline-block", marginBottom: 10 }}>
+            <button type="button" className="ghost">← 대시보드로 돌아가기</button>
+          </Link>
           <h1>재판정 결과 · {machine.displayName}</h1>
         </div>
         <div className="card" style={{ textAlign: "center" }}>
@@ -308,17 +315,11 @@ export default function WorkerScreen() {
           <p style={{ fontSize: 12.5, color: "var(--muted)", margin: "8px 0 0" }}>
             {RISK_LEVEL_LABELS[displayLevel] || displayLevel}
           </p>
-          {!allCompletedAtSubmit ? (
-            <p className="status-block">보류 항목이 남아있어 위험단계가 유지됩니다.</p>
-          ) : (
-            <>
-              <p className="status-block">
-                재판정 결과: <b>{finalAlert ? ALERT_STATUS_LABELS[finalAlert.alert_status] || finalAlert.alert_status : "해소"}</b>
-              </p>
-              {!isResolved && (
-                <p className="status-block">완료 처리했지만 재측정에서 이상이 지속돼 위험단계가 유지됩니다.</p>
-              )}
-            </>
+          <p className="status-block">
+            즉시 재측정 결과: <b>{finalAlert ? ALERT_STATUS_LABELS[finalAlert.alert_status] || finalAlert.alert_status : "해결"}</b>
+          </p>
+          {!isResolved && (
+            <p className="status-block">재측정에서도 이상이 지속되어 현재 위험단계를 유지합니다.</p>
           )}
           <Link to="/">
             <button type="button" className="primary" style={{ marginTop: 10 }}>
@@ -335,6 +336,9 @@ export default function WorkerScreen() {
       <>
         {emergencyGate}
         <div className="page-header">
+          <Link to="/" style={{ display: "inline-block", marginBottom: 10 }}>
+            <button type="button" className="ghost">← 대시보드로 돌아가기</button>
+          </Link>
           <h1>{machine.displayName}</h1>
         </div>
         <div className="card">
@@ -354,6 +358,9 @@ export default function WorkerScreen() {
     <>
       {emergencyGate}
       <div className="page-header">
+        <Link to="/" style={{ display: "inline-block", marginBottom: 10 }}>
+          <button type="button" className="ghost">← 대시보드로 돌아가기</button>
+        </Link>
         <h1>체크리스트 · {machine.displayName}</h1>
       </div>
 
@@ -384,6 +391,8 @@ export default function WorkerScreen() {
           </span>
         </div>
 
+        <LegalReferences references={evidenceReferences} compact />
+
         {(checklist.requires_manager_report || checklist.requires_maintenance_request) && (
           <div className="button-row">
             {checklist.requires_manager_report && <Badge level="chip">관리자 보고 필요</Badge>}
@@ -403,6 +412,7 @@ export default function WorkerScreen() {
                 note={s.note}
                 onStatusChange={updateStatus}
                 onNoteChange={updateNote}
+                showCitations={false}
               />
             );
           })}

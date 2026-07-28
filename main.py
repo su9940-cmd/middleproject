@@ -9,7 +9,7 @@ from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from app.api import alert_routes, maintenance_routes, sensor_routes, worker_routes
+from app.api import alert_routes, demo_routes, maintenance_routes, sensor_routes, worker_routes
 from app.core.db import create_tables
 from app.core.exceptions import ApplicationError, SensorValidationError
 from app.graph.builder import build_safety_graph, default_graph_dependencies
@@ -67,6 +67,7 @@ app.include_router(sensor_routes.router)
 app.include_router(alert_routes.router)
 app.include_router(worker_routes.router)
 app.include_router(maintenance_routes.router)
+app.include_router(demo_routes.router)
 app.mount("/demo", StaticFiles(directory="demo", html=True), name="demo")
 
 

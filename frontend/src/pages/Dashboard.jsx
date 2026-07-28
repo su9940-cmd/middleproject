@@ -8,13 +8,18 @@ import {
   RISK_LEVELS,
   RISK_LEVEL_PRESETS,
   SAFE_RECHECK_PRESET,
+  buildNormalReading,
 } from "../constants/machines.js";
 import { getActiveAlert } from "../api/alerts.js";
-import { ingestSensorReading } from "../api/sensors.js";
+import { getLatestSensorReading, ingestSensorReading } from "../api/sensors.js";
+import { resetDemoState } from "../api/demo.js";
 
 function initialState() {
   return Object.fromEntries(
-    MACHINES.map((machine) => [machine.machineId, { alert: null, loading: true, error: null }]),
+    MACHINES.map((machine) => [
+      machine.machineId,
+      { alert: null, loading: true, error: null, lastReading: null },
+    ]),
   );
 }
 
@@ -22,9 +27,14 @@ function randomRiskLevel() {
   return RISK_LEVELS[Math.floor(Math.random() * RISK_LEVELS.length)];
 }
 
+
 function formatTime(iso) {
   if (!iso) return "-";
   return new Date(iso).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
+}
+
+function formatReadingValue(value) {
+  return typeof value === "number" ? Number(value.toFixed(2)) : value ?? "-";
 }
 
 function buildReadingId(machineId) {
@@ -36,13 +46,20 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const [statuses, setStatuses] = useState(initialState);
   const [submittingId, setSubmittingId] = useState(null);
+  const [resetting, setResetting] = useState(false);
   const [lastResult, setLastResult] = useState(null);
 
   const refreshMachine = useCallback(async (machineId) => {
     setStatuses((prev) => ({ ...prev, [machineId]: { ...prev[machineId], loading: true, error: null } }));
     try {
-      const alert = await getActiveAlert(machineId);
-      setStatuses((prev) => ({ ...prev, [machineId]: { ...prev[machineId], alert, loading: false, error: null } }));
+      const [alert, lastReading] = await Promise.all([
+        getActiveAlert(machineId),
+        getLatestSensorReading(machineId),
+      ]);
+      setStatuses((prev) => ({
+        ...prev,
+        [machineId]: { ...prev[machineId], alert, lastReading, loading: false, error: null },
+      }));
     } catch (error) {
       setStatuses((prev) => ({ ...prev, [machineId]: { ...prev[machineId], alert: null, loading: false, error } }));
     }
@@ -53,7 +70,8 @@ export default function Dashboard() {
   }, [refreshMachine]);
 
   function handleCardClick(machine, alert) {
-    if (!alert) return;
+    // 정상 상태는 작업자 체크리스트가 없으므로 상세 화면으로 이동하지 않음.
+    if (!alert || alert.risk_level === "NORMAL") return;
     navigate(`/machines/${machine.machineId}/worker`);
   }
 
@@ -64,7 +82,7 @@ export default function Dashboard() {
     const level = randomRiskLevel();
     try {
       const payload = {
-        ...SAFE_RECHECK_PRESET,
+        ...(level === "NORMAL" ? buildNormalReading(machine.machineType) : SAFE_RECHECK_PRESET),
         ...RISK_LEVEL_PRESETS[machine.machineType][level],
         reading_id: buildReadingId(machine.machineId),
         machine_id: machine.machineId,
@@ -73,12 +91,47 @@ export default function Dashboard() {
         measurement_mode: "PERIODIC",
       };
       const result = await ingestSensorReading(payload);
+      const hasActiveAlert = result.alert_status && result.alert_status !== "NONE";
+      setStatuses((prev) => ({
+        ...prev,
+        [machine.machineId]: {
+          ...prev[machine.machineId],
+          // Use the ingest response directly so the card updates as soon as
+          // the mock reading has been processed; a second refresh request can
+          // race with the graph persistence and briefly show stale data.
+          alert: hasActiveAlert
+            ? {
+                alert_id: result.alert_id,
+                risk_level: result.risk_level,
+                alert_status: result.alert_status,
+                repeat_count: result.repeat_count || 0,
+              }
+            : null,
+          lastReading: payload,
+          loading: false,
+          error: null,
+        },
+      }));
       setLastResult({ machineId: machine.machineId, ...result });
-      await refreshMachine(machine.machineId);
     } catch (error) {
       setLastResult({ machineId: machine.machineId, error });
     } finally {
       setSubmittingId(null);
+    }
+  }
+
+  async function handleReset() {
+    if (!window.confirm("모든 기기 상태와 DB 기록을 삭제하고 정상 상태로 초기화할까요?")) return;
+    setResetting(true);
+    setLastResult(null);
+    try {
+      await resetDemoState();
+      setStatuses(initialState());
+      MACHINES.forEach((machine) => refreshMachine(machine.machineId));
+    } catch (error) {
+      setLastResult({ error });
+    } finally {
+      setResetting(false);
     }
   }
 
@@ -87,19 +140,20 @@ export default function Dashboard() {
       <div className="page-header">
         <h1>알림 센터</h1>
         <p>
-          활성 경보가 있는 설비를 탭하면 체크리스트로 이동해요. 실제 IoT 장비가 없는 데모라 "센서 입력"을
+          활성 경보가 있는 설비를 탭하면 체크리스트로 이동해요. 실제 IoT 장비가 없는 데모라 "데이터 호출"을
           누르면 정상 → 주의 → 경고 → 긴급 순으로 한 단계씩 시뮬레이션 값을 제출합니다.
         </p>
       </div>
 
       <div className="alert-list">
         {MACHINES.map((machine) => {
-          const { alert, loading, error } = statuses[machine.machineId] || {
+          const { alert, loading, error, lastReading } = statuses[machine.machineId] || {
             alert: null,
             loading: true,
             error: null,
+            lastReading: null,
           };
-          const clickable = Boolean(alert);
+          const clickable = Boolean(alert && alert.risk_level !== "NORMAL");
           const submitting = submittingId === machine.machineId;
           const result = lastResult?.machineId === machine.machineId ? lastResult : null;
 
@@ -118,7 +172,7 @@ export default function Dashboard() {
                   disabled={submitting}
                   onClick={(event) => handleSensorInput(event, machine)}
                 >
-                  {submitting ? "제출 중..." : "센서 입력"}
+                  {submitting ? "호출 중..." : "데이터 호출"}
                 </button>
               </div>
               <div className="row-meta">
@@ -143,6 +197,18 @@ export default function Dashboard() {
                 <span>{formatTime(alert?.updated_at)}</span>
               </div>
 
+              {lastReading && (
+                <div className="sensor-summary">
+                  <span>현재 입력값</span>
+                  <span>온도 {formatReadingValue(lastReading.temperature)}°C</span>
+                  <span>압력 {formatReadingValue(lastReading.pressure)}</span>
+                  <span>습도 {formatReadingValue(lastReading.humidity)}%</span>
+                  <span>진동 {formatReadingValue(lastReading.vibration)}</span>
+                  <span>가스 {formatReadingValue(lastReading.gas)}</span>
+                  <span>불꽃 {formatReadingValue(lastReading.sparks)}</span>
+                </div>
+              )}
+
               {result && (
                 <div className="fill" style={{ marginTop: 10 }} onClick={(event) => event.stopPropagation()}>
                   {result.error ? (
@@ -163,6 +229,10 @@ export default function Dashboard() {
       <p style={{ fontSize: 11, color: "var(--faint)", margin: "12px 2px 0" }}>
         1=정상 · 2=주의 · 3=경고 · 4=긴급(삼각형)
       </p>
+
+      <button type="button" className="demo-reset-button" onClick={handleReset} disabled={resetting}>
+        {resetting ? "초기화 중..." : "전체 초기화"}
+      </button>
     </>
   );
 }

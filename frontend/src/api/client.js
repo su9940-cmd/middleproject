@@ -12,10 +12,23 @@ export class ApiError extends Error {
 
 /** Thin fetch wrapper matching the backend's shared error-code JSON contract. */
 export async function apiRequest(path, options = {}) {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    headers: { "Content-Type": "application/json" },
-    ...options,
-  });
+  const controller = options.signal ? null : new AbortController();
+  const timeoutId = controller ? setTimeout(() => controller.abort(), 60000) : null;
+  let response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      headers: { "Content-Type": "application/json" },
+      ...options,
+      ...(controller ? { signal: controller.signal } : {}),
+    });
+  } catch (error) {
+    if (error.name === "AbortError") {
+      throw new ApiError("서버 응답 시간이 초과되었습니다. 잠시 후 다시 호출해 주세요.");
+    }
+    throw error;
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
     throw new ApiError(body.message || body.detail || `HTTP ${response.status}`, {

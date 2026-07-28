@@ -92,6 +92,29 @@ export const SAFE_RECHECK_PRESET = {
   training: "Yes",
 };
 
+function randomBetween(min, max, digits = 1) {
+  const value = min + Math.random() * (max - min);
+  return Number(value.toFixed(digits));
+}
+
+// 정상 측정도 실제 센서처럼 작은 편차를 갖도록 생성함.
+export function buildNormalReading(machineType) {
+  const reading = { ...SAFE_RECHECK_PRESET };
+  reading.temperature = randomBetween(24, 28);
+  reading.pressure = randomBetween(19, 22);
+  reading.humidity = randomBetween(38, 45);
+  reading.vibration = randomBetween(0.6, 1.0, 2);
+  reading.speed = Math.round(randomBetween(1150, 1250));
+  reading.service_days = Math.round(randomBetween(75, 105));
+  reading.gas = randomBetween(0.5, 1.5, 2);
+  reading.sparks = 0;
+
+  if (machineType === "COMPRESSOR") reading.pressure = randomBetween(20, 24);
+  if (machineType === "STORAGE_TANK") reading.gas = randomBetween(0.8, 2.0, 2);
+  if (machineType === "PUMP") reading.vibration = randomBetween(0.4, 0.9, 2);
+  return reading;
+}
+
 // A shared "worse operating context" (older machine, more service days,
 // night shift, junior worker, no safety training) layered on top of
 // SAFE_RECHECK_PRESET to reach CAUTION/WARNING - the trained model is a weak
