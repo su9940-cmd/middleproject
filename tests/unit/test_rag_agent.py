@@ -6,8 +6,12 @@ import unittest
 from typing import Any
 from unittest.mock import patch
 
-from app.agents.rag import build_query_text, rag_agent
+from pathlib import Path
+
+from app.agents.rag import _load_local_documents, _match_law_files, build_query_text, rag_agent
 from app.core.enums import MachineType, RiskLevel
+
+_LAWS_DIR = Path(__file__).resolve().parents[2] / "data" / "laws"
 from app.services.rag_service import (
     RetrievalRequest,
     normalize_retrieved_documents,
@@ -141,6 +145,58 @@ class RAGAgentTest(unittest.TestCase):
             )
         self.assertEqual(law_only["error_code"], "RAG_RETRIEVAL_FAILED")
         self.assertEqual(law_only["retrieved_documents"], [])
+
+
+class LocalDocumentFallbackTest(unittest.TestCase):
+    """The no-Chroma-index fallback path (`_load_local_documents`) used to grab
+    the first two law files alphabetically regardless of which machine asked -
+    it must instead match each SOP's own `legal_refs`."""
+
+    def test_match_law_files_picks_the_sops_own_referenced_articles(self) -> None:
+        matched = _match_law_files(
+            _LAWS_DIR,
+            ["산업안전보건기준에관한규칙 제92조", "산업안전보건기준에관한규칙 제93조"],
+        )
+        self.assertEqual({path.stem for path in matched}, {"law_art92", "law_art93"})
+
+    def test_match_law_files_falls_back_to_first_two_when_no_refs_given(self) -> None:
+        matched = _match_law_files(_LAWS_DIR, [])
+        self.assertEqual(len(matched), 2)
+
+    def test_load_local_documents_attaches_reactors_own_law_articles(self) -> None:
+        documents = _load_local_documents("reactor_safety_manual")
+        law_docs = [doc for doc in documents if doc["document_type"] == "law"]
+        # Reactor's SOP cites 4 articles (92/241/618/619) but every law
+        # citation gets attached to every checklist item, so more than
+        # MAX_LAW_CITATIONS_PER_SOP buries the ones worth reading - capped to
+        # the SOP's own first 3, in the order the SOP itself lists them.
+        self.assertEqual([doc["source_id"] for doc in law_docs], ["law_art92", "law_art241", "law_art618"])
+        # law_art241_2 (화재감시자) isn't in the reactor SOP's legal_refs - the
+        # old alphabetical [:2] fallback used to include it anyway.
+        self.assertNotIn("law_art241_2", {doc["source_id"] for doc in law_docs})
+
+    def test_match_law_files_caps_at_three_in_the_sops_own_order(self) -> None:
+        """storage_tank_safety_manual cites 6 articles - law files are
+        globbed alphabetically, so without re-sorting by each article's
+        position in the SOP's own `legal_refs`, capping to 3 would silently
+        keep whichever 3 happen to sort first by filename instead of the
+        SOP's own first 3."""
+
+        matched = _match_law_files(
+            _LAWS_DIR,
+            [
+                "산업안전보건기준에관한규칙 제311조",
+                "산업안전보건기준에관한규칙 제92조",
+                "산업안전보건기준에관한규칙 제618조",
+                "산업안전보건기준에관한규칙 제241조",
+            ],
+        )
+        self.assertEqual([path.stem for path in matched], ["law_art311", "law_art92", "law_art618"])
+
+    def test_load_local_documents_includes_plain_summary_per_law_article(self) -> None:
+        documents = _load_local_documents("reactor_safety_manual")
+        law_docs = [doc for doc in documents if doc["document_type"] == "law"]
+        self.assertTrue(all(doc["plain_summary"] for doc in law_docs))
 
 
 if __name__ == "__main__":

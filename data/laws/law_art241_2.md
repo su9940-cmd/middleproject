@@ -6,6 +6,7 @@ manual_id: [storage_tank_safety_manual]
 law_name: 산업안전보건기준에 관한 규칙
 article: 제241조의2
 title: 화재감시자
+plain_summary: 가연성물질 근처 용접·용단 작업 시 화재감시자 배치 필수.
 law_version: "시행 2026. 3. 2. / 고용노동부령 제450호, 2025. 9. 1., 일부개정"
 law_checked_at: "2026-07-21, 국가법령정보센터(law.go.kr)"
 ---

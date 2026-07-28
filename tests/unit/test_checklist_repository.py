@@ -4,12 +4,14 @@ depends on (see `app.api.worker_routes`)."""
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 import pytest
 
 from app.core import db
 from app.core.enums import AlertStatus, MachineType, RiskLevel
 from app.core.exceptions import DatabaseOperationError
-from app.models.orm_models import Base
+from app.models.orm_models import Base, ChecklistORM
 from app.repositories.alert_repository import AlertRepository
 from app.repositories.checklist_repository import ChecklistRepository
 
@@ -93,6 +95,33 @@ async def test_get_latest_by_alert_picks_the_highest_version(async_session):
     latest = await repo.get_latest_by_alert("AL-M0101-001")
     assert latest is not None
     assert latest.checklist_id == "CL-AL-M0101-001-V2"
+
+
+@pytest.mark.asyncio
+async def test_get_latest_by_alert_breaks_same_version_tie_by_recency(async_session):
+    """A still-open alert that recurs reuses its alert_id (see
+    `alert_lifecycle_node`), so a second draft occasion produces another
+    version-1 checklist alongside the first (`version` only counts the
+    validator's revision loop *within* one action_draft call). Without a
+    `created_at` tiebreaker, `ORDER BY version DESC` alone can return either
+    row arbitrarily, which used to surface the stale, already-completed
+    checklist from the first occasion instead of the fresh one."""
+
+    older = ChecklistORM(
+        **{**_checklist_data(checklist_id="CL-AL-M0101-001-V1"), "items": []},
+        created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+    )
+    newer = ChecklistORM(
+        **{**_checklist_data(checklist_id="CL-AL-M0101-001-R1-V1"), "items": []},
+        created_at=datetime(2026, 1, 1, tzinfo=timezone.utc) + timedelta(minutes=5),
+    )
+    async_session.add_all([older, newer])
+    await async_session.commit()
+
+    repo = ChecklistRepository(async_session)
+    latest = await repo.get_latest_by_alert("AL-M0101-001")
+    assert latest is not None
+    assert latest.checklist_id == "CL-AL-M0101-001-R1-V1"
 
 
 @pytest.mark.asyncio

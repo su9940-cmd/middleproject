@@ -5,6 +5,10 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
+    // Binds 0.0.0.0 (not just the IPv6 loopback `localhost` picks on this
+    // machine) so the Cloudflare tunnel process, which dials 127.0.0.1, can
+    // actually reach the dev server.
+    host: true,
     // Lets a Cloudflare quick tunnel (random *.trycloudflare.com host per run)
     // proxy to this dev server without Vite rejecting the Host header.
     // Demo-sharing only - do not widen this for a real deployment.

@@ -145,6 +145,7 @@ def _build_document_index(
             "risk_level_tags": document.get("risk_level_tags"),
             "source_path": document.get("source_path"),
             "legal_reference": document.get("legal_reference"),
+            "plain_summary": document.get("plain_summary"),
             "content": content,
             "manual_version": document.get("manual_version"),
             "relevance_score": document.get("relevance_score"),
@@ -197,6 +198,53 @@ def _apply_safety_guards(
     return items
 
 
+_RISK_SECTION_LABELS: dict[str, str] = {
+    "CAUTION": "주의",
+    "WARNING": "경고",
+    "EMERGENCY": "긴급",
+}
+
+
+def _extract_risk_section(content: str, risk_level: RiskLevel | str) -> str:
+    """Pull just the current risk level's `## N. ... 등급 통보 시 조치` section
+    out of a full SOP file, instead of handing a worker the whole manual.
+
+    Every `data/sop/*.md` file uses the same per-machine heading convention
+    (symptoms/root-cause-investigation/restart-checklist sections aren't the
+    first responder's job - see e.g. `data/sop/reactor_safety_manual.md`
+    sections 3/4/5 for 주의/경고/긴급). Falls back to the full text if a
+    document doesn't follow that convention, so nothing is silently dropped.
+    """
+
+    label = _RISK_SECTION_LABELS.get(str(risk_level or "").upper())
+    if not label:
+        return content
+
+    for section in re.split(r"(?m)^(?=## )", content):
+        heading = section.split("\n", 1)[0]
+        if heading.startswith("## ") and label in heading and "등급 통보 시 조치" in heading:
+            return section.strip()
+    return content
+
+
+def _split_into_steps(section_text: str) -> list[str]:
+    """Split a risk-level section's `1. ...` / `2. ...` numbered list into
+    individual step sentences (heading and lead-in prose dropped), so a
+    worker gets one focused checklist item per action instead of one item
+    holding the whole section as a paragraph."""
+
+    steps = []
+    for line in section_text.splitlines():
+        match = re.match(r"^\d+\.\s+(.*\S)\s*$", line.strip())
+        if match:
+            steps.append(match.group(1))
+    return steps
+
+
+def _step_title(step_text: str, limit: int = 40) -> str:
+    return step_text if len(step_text) <= limit else step_text[: limit - 1].rstrip() + "…"
+
+
 def _fallback_from_documents(
     document_index: dict[str, dict[str, Any]],
     memory_context: dict[str, Any],
@@ -210,6 +258,17 @@ def _fallback_from_documents(
     carries the retrieved law documents as extra citations, so the worker
     still sees which article backs the instruction, labelled by source type
     (SOP/산안법) - see `ChecklistItem.jsx::citationLabel`.
+
+    Unlike the LLM path (which can compose fresh wording for a recurrence),
+    this fallback only ever has one source of truth per risk level: the same
+    numbered steps in the SOP section. If every one of those steps was
+    already completed on a past alert for this machine, filtering them all
+    out would leave zero items - and since there's nothing else to fall back
+    to, that would surface as "no grounded SOP checklist items could be
+    composed" instead of a checklist, even though the hazard has genuinely
+    recurred and the worker needs to redo the same first-response steps. So
+    the completed-filter only applies when it leaves at least one item;
+    if it would zero everything out, skip it and re-issue the full step list.
     """
 
     completed = set(memory_context.get("completed_action_ids") or [])
@@ -225,31 +284,43 @@ def _fallback_from_documents(
         if document["document_type"] != "sop"
     ]
 
-    items: list[dict[str, Any]] = []
+    candidates: list[dict[str, Any]] = []
     seen_item_ids: set[str] = set()
     for source_key, document in document_index.items():
         if document["document_type"] != "sop":
             continue
 
-        action_id, item_id = _stable_ids([source_key], document["title"])
-        comparable_ids = {action_id, item_id, source_key, document["source_id"]}
-        if comparable_ids & completed or item_id in seen_item_ids:
-            continue
+        section_text = _extract_risk_section(document["content"], risk_level)
+        # Falls back to the whole section as a single item if it doesn't use
+        # the numbered-list convention - nothing is silently dropped.
+        steps = _split_into_steps(section_text) or [section_text]
 
-        seen_item_ids.add(item_id)
-        items.append(
-            {
-                "checklist_item_id": item_id,
-                "action_id": action_id,
-                "title": document["title"],
-                "instruction": document["content"],
-                "priority": default_priority,
-                "required": True,
-                "citations": [_citation_from_document(document), *law_citations],
-                "previously_failed": bool(comparable_ids & failed),
-            }
-        )
-    return items
+        for step_index, step_text in enumerate(steps, start=1):
+            action_id, item_id = _stable_ids([source_key, str(step_index)], step_text)
+            if item_id in seen_item_ids:
+                continue
+            seen_item_ids.add(item_id)
+
+            comparable_ids = {action_id, item_id, f"{source_key}::{step_index}", document["source_id"]}
+            candidates.append(
+                {
+                    "checklist_item_id": item_id,
+                    "action_id": action_id,
+                    "title": _step_title(step_text),
+                    "instruction": step_text,
+                    "priority": default_priority,
+                    "required": True,
+                    "citations": [_citation_from_document(document), *law_citations],
+                    "previously_failed": bool(comparable_ids & failed),
+                    "_comparable_ids": comparable_ids,
+                }
+            )
+
+    remaining = [item for item in candidates if not (item["_comparable_ids"] & completed)]
+    chosen = remaining if remaining else candidates
+    for item in chosen:
+        item.pop("_comparable_ids", None)
+    return chosen
 
 
 def _citation_from_document(document: dict[str, Any]) -> dict[str, Any]:
@@ -263,6 +334,7 @@ def _citation_from_document(document: dict[str, Any]) -> dict[str, Any]:
         "risk_level_tags": document.get("risk_level_tags"),
         "source_path": document.get("source_path"),
         "legal_reference": document.get("legal_reference"),
+        "plain_summary": document.get("plain_summary"),
         "manual_version": document["manual_version"],
         "source_excerpt": document["content"],
     }

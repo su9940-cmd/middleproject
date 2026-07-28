@@ -6,6 +6,7 @@ manual_id: [storage_tank_safety_manual]
 law_name: 산업안전보건기준에 관한 규칙
 article: 제311조
 title: 폭발위험장소에서 사용하는 전기 기계·기구의 선정 등
+plain_summary: 폭발 위험 장소는 방폭 인증 전기기기만 사용·유지관리.
 law_version: "시행 2026. 3. 2. / 고용노동부령 제450호, 2025. 9. 1., 일부개정"
 law_checked_at: "2026-07-21, 국가법령정보센터(law.go.kr)"
 ---

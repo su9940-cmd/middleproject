@@ -128,13 +128,58 @@ def _error(message: str) -> dict[str, Any]:
     }
 
 
+MAX_LAW_CITATIONS_PER_SOP = 3
+
+
+def _match_law_files(law_dir: Path, legal_refs: list[str]) -> list[Path]:
+    """Pick the law files an SOP's own front-matter `legal_refs` actually names.
+
+    `legal_refs` entries look like "산업안전보건기준에관한규칙 제92조" - matched
+    against each law file's `article` front-matter field ("제92조") rather than
+    the filename, since that's the only shared key between the two. Falls
+    back to the first two law files alphabetically if nothing matches (e.g.
+    the SOP has no `legal_refs`).
+
+    Ordered by each article's position in the SOP's own `legal_refs` list
+    (not alphabetically by filename) and capped at `MAX_LAW_CITATIONS_PER_SOP`
+    - a checklist item showing every law article an SOP happens to cite (4+
+    for some machines) buries the ones actually worth a worker's attention,
+    so this keeps just the SOP author's own first few, in their own order.
+    """
+
+    law_paths = sorted(law_dir.glob("*.md"))
+    if not legal_refs:
+        return law_paths[:2]
+
+    def _ref_rank(law_path: Path) -> int:
+        article = _parse_law_front_matter(law_path.read_text(encoding="utf-8")).get("article")
+        for index, ref in enumerate(legal_refs):
+            if article and article in ref:
+                return index
+        return len(legal_refs)
+
+    matched = [
+        law_path
+        for law_path in law_paths
+        if (article := _parse_law_front_matter(law_path.read_text(encoding="utf-8")).get("article"))
+        and any(article in ref for ref in legal_refs)
+    ]
+    if not matched:
+        return law_paths[:2]
+    matched.sort(key=_ref_rank)
+    return matched[:MAX_LAW_CITATIONS_PER_SOP]
+
+
 def _load_local_documents(manual_id: str) -> list[dict[str, Any]]:
-    """Load the machine SOP and a small law reference set for local demos."""
+    """Load the machine SOP and its cited law articles for local demos."""
 
     project_root = Path(__file__).resolve().parents[2]
     documents: list[dict[str, Any]] = []
     sop_path = project_root / "data" / "sop" / f"{manual_id}.md"
+    sop_legal_refs: list[str] = []
     if sop_path.is_file():
+        sop_text = sop_path.read_text(encoding="utf-8")
+        sop_legal_refs = _parse_law_front_matter(sop_text).get("legal_refs") or []
         documents.append(
             {
                 "source_id": manual_id,
@@ -146,14 +191,14 @@ def _load_local_documents(manual_id: str) -> list[dict[str, Any]]:
                 "risk_level_tags": None,
                 "source_path": str(sop_path),
                 "legal_reference": None,
-                "content": sop_path.read_text(encoding="utf-8"),
+                "content": sop_text,
                 "relevance_score": 1.0,
                 "manual_version": None,
             }
         )
 
     law_dir = project_root / "data" / "laws"
-    for law_path in sorted(law_dir.glob("*.md"))[:2]:
+    for law_path in _match_law_files(law_dir, sop_legal_refs):
         law_text = law_path.read_text(encoding="utf-8")
         front_matter = _parse_law_front_matter(law_text)
         article = front_matter.get("article")
@@ -175,6 +220,7 @@ def _load_local_documents(manual_id: str) -> list[dict[str, Any]]:
                 "risk_level_tags": None,
                 "source_path": str(law_path),
                 "legal_reference": front_matter.get("legal_reference") or article or law_path.stem,
+                "plain_summary": front_matter.get("plain_summary"),
                 "content": law_text,
                 "relevance_score": 0.5,
                 "manual_version": None,

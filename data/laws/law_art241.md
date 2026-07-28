@@ -6,6 +6,7 @@ manual_id: [reactor_safety_manual, storage_tank_safety_manual]
 law_name: 산업안전보건기준에 관한 규칙
 article: 제241조
 title: 화재위험작업 시의 준수사항
+plain_summary: 화기작업 전 절차 수립, 인화물질 방호, 불티 비산방지·환기 조치 필수.
 law_version: "시행 2026. 3. 2. / 고용노동부령 제450호, 2025. 9. 1., 일부개정"
 law_checked_at: "2026-07-21, 국가법령정보센터(law.go.kr)"
 ---

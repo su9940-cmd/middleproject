@@ -2,14 +2,18 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import Badge from "../components/Badge.jsx";
 import ChecklistItem from "../components/ChecklistItem.jsx";
-import LegalReferences from "../components/LegalReferences.jsx";
-import SensorForm from "../components/SensorForm.jsx";
 import { LoadingBlock, ErrorBlock, EmptyBlock } from "../components/StatusBlock.jsx";
 import { getActiveAlert, getAlertChecklist } from "../api/alerts.js";
+import { ingestSensorReading } from "../api/sensors.js";
 import { submitChecklistResponse } from "../api/worker.js";
-import { machineById, RISK_LEVEL_LABELS, ALERT_STATUS_LABELS } from "../constants/machines.js";
+import { machineById, RISK_LEVEL_LABELS, ALERT_STATUS_LABELS, SAFE_RECHECK_PRESET } from "../constants/machines.js";
 
 const POLL_INTERVAL_MS = 1500;
+
+function buildRecheckReadingId(machineId) {
+  const timestamp = new Date().toISOString().replace(/[-:]/g, "").split(".")[0];
+  return `RD-${machineId.replace(/-/g, "")}-RECHECK-${timestamp}`;
+}
 
 function defaultItemState(items) {
   const state = {};
@@ -41,6 +45,12 @@ export default function WorkerScreen() {
 
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState(null);
+
+  // Experimental: auto-fill and auto-submit a safe reading instead of making
+  // someone hand-type recheck values every time - see SAFE_RECHECK_PRESET.
+  const [recheckAutoSubmitted, setRecheckAutoSubmitted] = useState(false);
+  const [recheckError, setRecheckError] = useState(null);
+  const [recheckAttempt, setRecheckAttempt] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -112,8 +122,36 @@ export default function WorkerScreen() {
     return () => clearInterval(interval);
   }, [alert, checklist, screenPhase]);
 
+  // Experimental: instead of requiring someone to fill in the recheck form
+  // by hand, auto-submit a safe reading the moment this phase starts - the
+  // poll effect below picks up the result the same way either way.
+  useEffect(() => {
+    if (!machine || screenPhase !== "waiting_recheck" || recheckAutoSubmitted) return;
+    let cancelled = false;
+    setRecheckError(null);
+    (async () => {
+      try {
+        await ingestSensorReading({
+          reading_id: buildRecheckReadingId(machine.machineId),
+          machine_id: machine.machineId,
+          machine_type: machine.machineType,
+          measured_at: new Date().toISOString(),
+          measurement_mode: "IMMEDIATE_RECHECK",
+          ...SAFE_RECHECK_PRESET,
+        });
+        if (!cancelled) setRecheckAutoSubmitted(true);
+      } catch (error) {
+        if (!cancelled) setRecheckError(error);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [screenPhase, recheckAutoSubmitted, recheckAttempt, machine]);
+
   // After submit, poll until the recheck reading resolves the alert one way
-  // or the other (there's no real IoT push - see SensorForm below).
+  // or the other (there's no real IoT push - the auto-submit above is what
+  // actually stands in for it).
   useEffect(() => {
     if (screenPhase !== "waiting_recheck") return;
     const interval = setInterval(async () => {
@@ -220,12 +258,31 @@ export default function WorkerScreen() {
           <h1>즉시 재측정 대기 중 · {machine.displayName}</h1>
           <p>작업자 응답이 저장되고 설비가 재측정 대기 상태로 전환됐습니다.</p>
         </div>
-        <div className="card">
-          <p className="status-block">
-            실제 IoT 센서가 없는 데모 환경이라, 아래에서 재측정 값을 직접 제출해야 판정이 진행돼요.
-            제출하면 이 화면이 자동으로 결과를 반영합니다.
-          </p>
-          <SensorForm machine={machine} measurementMode="IMMEDIATE_RECHECK" onSubmitted={() => {}} />
+        <div className="card" style={{ textAlign: "center" }}>
+          {recheckError ? (
+            <>
+              <p className="status-block error">재측정 자동 제출에 실패했습니다: {recheckError.message}</p>
+              <button
+                type="button"
+                className="primary"
+                onClick={() => {
+                  setRecheckError(null);
+                  setRecheckAttempt((n) => n + 1);
+                }}
+              >
+                다시 시도
+              </button>
+            </>
+          ) : recheckAutoSubmitted ? (
+            <p className="status-block">
+              정상 값으로 재측정을 제출했습니다. 판정 결과를 기다리는 중입니다...
+            </p>
+          ) : (
+            <p className="status-block">
+              (시범 기능) 실제 IoT 센서가 없는 데모 환경이라, 정상 값을 자동으로 채워 재측정을
+              제출하는 중입니다...
+            </p>
+          )}
         </div>
       </>
     );
@@ -350,8 +407,6 @@ export default function WorkerScreen() {
             );
           })}
         </div>
-
-        <LegalReferences references={checklist.supporting_references} />
 
         {submitError && <p className="status-block error">{submitError.message}</p>}
         <button type="button" className="primary" disabled={!allDecided || submitting} onClick={handleSubmit}>

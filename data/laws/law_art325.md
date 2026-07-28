@@ -6,6 +6,7 @@ manual_id: [storage_tank_safety_manual]
 law_name: 산업안전보건기준에 관한 규칙
 article: 제325조
 title: 정전기로 인한 화재 폭발 등 방지
+plain_summary: 인화성 설비는 접지 등 정전기 방지 조치, 작업자는 제전복 착용.
 law_version: "시행 2026. 3. 2. / 고용노동부령 제450호, 2025. 9. 1., 일부개정"
 law_checked_at: "2026-07-21, 국가법령정보센터(law.go.kr)"
 ---

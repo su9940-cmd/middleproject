@@ -107,6 +107,7 @@ class ChromaVectorStore:
                     "risk_level_tags": meta.get("risk_level_tags"),
                     "source_path": meta.get("source_path"),
                     "legal_reference": meta.get("legal_reference"),
+                    "plain_summary": meta.get("plain_summary") or None,
                     "content": content,
                     # 코사인 거리 → 유사도(1 - distance). 음수 방지를 위해 max 처리.
                     "relevance_score": _distance_to_score(distance),

@@ -185,6 +185,7 @@ def build_law_records(path: Path, strategy: str) -> list[dict[str, Any]]:
                         else str(meta.get("risk_level_tags", "")),
                         "source_path": str(path),
                         "legal_reference": meta.get("legal_reference") or meta.get("article"),
+                        "plain_summary": meta.get("plain_summary") or "",
                         "manual_id": manual_id,
                         "law_name": meta.get("law_name"),
                         "article": meta.get("article"),

@@ -10,7 +10,10 @@ body,
 
 body {
   margin: 0;
-  background: var(--bg);
+  /* Backdrop behind the phone frame on a wide (desktop) viewport - distinct
+     from --bg (the phone's own screen color) so the frame reads as a
+     separate object sitting on the page. */
+  background: #05070a;
   color: var(--header-ink);
   font-family:
     -apple-system,
@@ -25,25 +28,95 @@ a {
   color: inherit;
 }
 
-.app-shell {
+/* ---- Phone frame ----
+   Alerts land on a phone, so this app is reviewed as one: a fixed-width
+   "device" centered on the page with its own scrollable screen, a top status
+   bar, and a bottom tab bar - not a normal full-width desktop layout. On an
+   actual narrow viewport (someone opening this on a real phone) the bezel
+   disappears and the frame just becomes the page. */
+.phone-viewport {
   min-height: 100%;
   display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
+
+.phone-frame {
+  width: 100%;
+  max-width: 428px;
+  min-height: 100vh;
+  background: var(--bg);
+  display: flex;
   flex-direction: column;
+  position: relative;
+  overflow: hidden;
+}
+
+@media (min-width: 480px) {
+  .phone-viewport {
+    padding: 32px 16px;
+  }
+  .phone-frame {
+    height: 900px;
+    min-height: 0;
+    border-radius: 44px;
+    border: 10px solid #000;
+    box-shadow:
+      0 30px 70px rgba(0, 0, 0, 0.55),
+      0 0 0 1px rgba(255, 255, 255, 0.04);
+  }
+}
+
+.phone-notch {
+  display: none;
+}
+@media (min-width: 480px) {
+  .phone-notch {
+    display: block;
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 120px;
+    height: 22px;
+    background: #000;
+    border-radius: 0 0 14px 14px;
+    z-index: 20;
+  }
+}
+
+/* Purely decorative fake status bar (time + signal/battery glyphs) - part of
+   the "this is a phone" illusion, not a real OS chrome. */
+.status-bar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 20px 2px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--header-ink);
+}
+.status-bar .status-icons {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--header-muted);
 }
 
 .app-header {
+  flex-shrink: 0;
   border-bottom: 1px solid var(--rule);
   background: var(--paper);
 }
 
 .app-header-inner {
-  max-width: 1100px;
-  margin: 0 auto;
-  padding: 14px 20px;
+  padding: 10px 18px;
   display: flex;
   align-items: center;
-  gap: 24px;
-  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .app-title {
@@ -54,56 +127,64 @@ a {
   color: var(--header-ink);
 }
 
-.app-nav {
-  display: flex;
-  gap: 6px;
-}
-
-.app-nav a {
-  text-decoration: none;
-  font-size: 13px;
-  font-weight: 600;
+.app-header-badge {
+  font-size: 11px;
   color: var(--header-muted);
-  padding: 6px 12px;
-  border-radius: 999px;
-  transition:
-    background 0.15s ease,
-    color 0.15s ease;
-}
-
-.app-nav a:hover {
-  background: var(--paper-chip);
-}
-
-.app-nav a.active {
-  background: var(--accent-soft);
-  color: var(--accent);
 }
 
 .app-main {
   flex: 1;
-  max-width: 1100px;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   width: 100%;
-  margin: 0 auto;
-  padding: 24px 20px 56px;
+  padding: 18px 16px 24px;
+}
+
+/* ---- Bottom tab bar ---- */
+.tab-bar {
+  flex-shrink: 0;
+  display: flex;
+  border-top: 1px solid var(--rule);
+  background: var(--paper);
+  padding: 6px 4px calc(6px + env(safe-area-inset-bottom, 0px));
+}
+.tab-bar a {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  text-decoration: none;
+  padding: 6px 4px;
+  border-radius: 12px;
+  color: var(--header-muted);
+  font-size: 10.5px;
+  font-weight: 600;
+}
+.tab-bar a .tab-icon {
+  font-size: 18px;
+  line-height: 1;
+}
+.tab-bar a.active {
+  color: var(--accent);
 }
 
 .page-header {
-  margin-bottom: 18px;
+  margin-bottom: 16px;
 }
 
 .page-header h1 {
-  font-size: clamp(19px, 2.6vw, 24px);
+  font-size: clamp(18px, 5vw, 21px);
   font-weight: 650;
   margin: 0 0 6px;
   letter-spacing: -0.01em;
 }
 
 .page-header p {
-  font-size: 13px;
+  font-size: 12.5px;
   color: var(--header-muted);
   margin: 0;
-  max-width: 68ch;
   line-height: 1.6;
 }
 
@@ -112,12 +193,12 @@ a {
   background: var(--paper);
   border: 1px solid var(--rule);
   border-radius: 12px;
-  padding: 18px;
+  padding: 16px;
   color: var(--ink);
 }
 
 .card + .card {
-  margin-top: 14px;
+  margin-top: 12px;
 }
 
 .card-head {
@@ -141,10 +222,52 @@ a {
   margin: 4px 0 0;
 }
 
-.grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: 14px;
+/* ---- Alert list (dashboard / maintenance queue) - a notification-style
+   stacked list instead of a desktop table, since a phone screen has no room
+   for columns. ---- */
+.alert-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.alert-list-item {
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+.alert-list-item.clickable {
+  cursor: pointer;
+}
+.alert-list-item.clickable:active {
+  background: var(--paper-chip);
+}
+.alert-list-item .row-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.alert-list-item .row-top .machine-name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  font-size: 13.5px;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.alert-list-item .row-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--muted);
+  flex-wrap: wrap;
+}
+.alert-list-item .row-meta .sep {
+  color: var(--rule);
 }
 
 /* ---- Risk-stage badges (1-4, per five_screen_flow_v9.html) ---- */
@@ -320,18 +443,23 @@ a {
   border-radius: 6px;
   color: var(--citation-fg);
   font-size: 11px;
+  font-family: inherit;
   margin-top: 6px;
+}
+button.citation-pill {
+  cursor: pointer;
 }
 .item .note-field {
   margin-top: 8px;
 }
-
-/* ---- Dashboard table rows ---- */
-tr.row:hover td {
-  background: var(--paper-chip);
-}
-tr.row td {
-  transition: background 0.1s ease;
+/* Plain-language paraphrase of a cited law article (data/laws/*.md's
+   `plain_summary` front-matter) - shown next to the citation-pill so a
+   worker doesn't have to parse actual statute wording to know why it's cited. */
+.item .law-summary {
+  margin: 5px 0 0;
+  font-size: 11.5px;
+  color: var(--muted);
+  line-height: 1.5;
 }
 
 select.status-select {
@@ -379,8 +507,8 @@ textarea.invalid {
 
 .field-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(135px, 1fr));
-  gap: 10px 12px;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px 10px;
   margin-bottom: 13px;
 }
 
@@ -444,9 +572,12 @@ button.link {
   margin-bottom: 13px;
 }
 
-/* ---- Emergency acknowledge modal ---- */
+/* ---- Emergency acknowledge modal ----
+   `absolute` (not `fixed`) so it stays confined to `.phone-frame` (the
+   nearest positioned ancestor) instead of covering the whole browser
+   viewport outside the simulated phone. */
 .modal-backdrop {
-  position: fixed;
+  position: absolute;
   inset: 0;
   background: rgba(0, 0, 0, 0.7);
   display: flex;
@@ -460,7 +591,7 @@ button.link {
   border: 1px solid var(--risk-emergency);
   border-radius: 12px;
   padding: 18px;
-  max-width: 420px;
+  max-width: 360px;
   width: 100%;
 }
 
@@ -473,27 +604,4 @@ button.link {
 }
 .status-block.error {
   color: var(--danger-fg);
-}
-
-table.plain {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-table.plain th {
-  text-align: left;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--faint);
-  padding: 6px 8px;
-  border-bottom: 1px solid var(--rule);
-}
-table.plain td {
-  padding: 10px 8px;
-  border-bottom: 1px solid var(--rule);
-  vertical-align: top;
-}
-table.plain tr:last-child td {
-  border-bottom: none;
 }

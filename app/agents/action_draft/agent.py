@@ -126,6 +126,7 @@ class ActionDraftAgent:
             alert_id=state.get("alert_id"),
             machine_id=state.get("machine_id"),
             version=version,
+            repeat_count=state.get("repeat_count") or 0,
         )
         machine_profile = state.get("machine_profile") or {}
         sop_citations = [
@@ -171,10 +172,28 @@ class ActionDraftAgent:
 
 
 def _build_checklist_id(
-    *, alert_id: str | None, machine_id: str | None, version: int
+    *, alert_id: str | None, machine_id: str | None, version: int, repeat_count: int = 0
 ) -> str:
+    """CL-{alert_id}-V{version}, or CL-{alert_id}-R{repeat_count}-V{version} on a recurrence.
+
+    `version` alone used to collide across separate draft occasions on the
+    same still-open alert: an alert reuses its alert_id across its whole
+    OPEN/WAITING_RECHECK/MONITORING/re-triggered lifecycle (see
+    `alert_lifecycle_node`), and `version` only counts the validator's
+    revision loop *within one* action_draft call (reset to 1 each call). So a
+    second EMERGENCY recurrence on the same still-open alert produced the
+    exact same checklist_id as the first, and `ChecklistRepository.save_checklist`'s
+    idempotency check (needed for LangGraph's interrupt/resume re-execution)
+    then silently discarded the new draft and kept serving the old,
+    already-completed one. `repeat_count` (from `alert_lifecycle_node`,
+    already tracked per this exact recurrence) disambiguates occasions
+    without needing a DB round-trip here; omitted when 0 to keep the common
+    non-recurring case's id unchanged.
+    """
     identity = alert_id or machine_id or "UNKNOWN"
     normalized = re.sub(r"[^A-Za-z0-9_-]+", "-", identity).strip("-") or "UNKNOWN"
+    if repeat_count:
+        return f"CL-{normalized}-R{repeat_count}-V{version}"
     return f"CL-{normalized}-V{version}"
 
 

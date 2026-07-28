@@ -32,12 +32,20 @@ class ChecklistRepository:
             ) from exc
 
     async def get_latest_by_alert(self, alert_id: str) -> ChecklistORM | None:
-        """Fetch the highest-`version` checklist generated for an alert, if any."""
+        """Fetch the highest-`version` checklist generated for an alert, if any.
+
+        `version` only counts the validator's revision loop within a single
+        action_draft call, so it resets to 1 on every fresh draft occasion -
+        a still-open alert that recurs (e.g. MONITORING -> abnormal again,
+        same alert_id reused - see `alert_lifecycle_node`) produces another
+        version-1 checklist alongside the first. `created_at` breaks that tie
+        in favor of the actually-latest row instead of an arbitrary one.
+        """
         try:
             stmt = (
                 select(ChecklistORM)
                 .where(ChecklistORM.alert_id == alert_id)
-                .order_by(ChecklistORM.version.desc())
+                .order_by(ChecklistORM.version.desc(), ChecklistORM.created_at.desc())
                 .limit(1)
             )
             result = await self.session.execute(stmt)

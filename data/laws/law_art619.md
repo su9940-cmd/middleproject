@@ -6,6 +6,7 @@ manual_id: [reactor_safety_manual, storage_tank_safety_manual]
 law_name: 산업안전보건기준에 관한 규칙
 article: 제619조
 title: 밀폐공간 작업 프로그램의 수립·시행
+plain_summary: 밀폐공간 작업 전 산소·가스 농도 측정, 보호구·비상연락체계 확인.
 law_version: "시행 2026. 3. 2. / 고용노동부령 제450호, 2025. 9. 1., 일부개정"
 law_checked_at: "2026-07-21, 국가법령정보센터(law.go.kr)"
 ---

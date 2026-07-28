@@ -3,7 +3,7 @@
 import json
 import unittest
 
-from app.agents.action_draft.draft_composer import compose_llm_draft
+from app.agents.action_draft.draft_composer import _extract_risk_section, compose_llm_draft
 from app.core.enums import RiskLevel
 
 
@@ -103,12 +103,77 @@ class ComposeGroundingGuardTest(unittest.TestCase):
                 self.assertTrue(items[0]["required"])
 
     def test_completed_action_is_not_repeated(self) -> None:
-        first_item = _compose(FakeLLMClient(_response()))[0][0]
+        """A second, still-open action keeps the response non-empty, so this
+        exercises `_apply_safety_guards`'s own completed-filter directly
+        instead of also tripping the separate fallback-on-empty behavior
+        (see `test_completed_fallback_step_is_not_repeated` for that path)."""
+
+        second_doc = _doc(section="4.4", title="배출 밸브 확인", content="배출 밸브 개도를 확인한다.")
+        second_action = _action(
+            source_key="pump_safety_manual::4.4",
+            title="배출 밸브 확인",
+            instruction="배출 밸브 개도를 확인한다.",
+        )
+        response = _response([_action(), second_action])
+        documents = [_doc(), second_doc]
+
+        first_items = _compose(FakeLLMClient(response), documents=documents)[0]
+        self.assertEqual(len(first_items), 2)
+        completed_id = first_items[0]["action_id"]
+
+        items, _, fallback, _ = _compose(
+            FakeLLMClient(response),
+            documents=documents,
+            memory={"completed_action_ids": [completed_id]},
+        )
+        self.assertFalse(fallback)
+        self.assertEqual(len(items), 1)
+        self.assertNotEqual(items[0]["action_id"], completed_id)
+
+    def test_completed_fallback_step_is_not_repeated(self) -> None:
+        """Partial completion on the fallback path: one of several steps was
+        already completed on a past alert, another wasn't - only the
+        completed one is filtered out (fallback and LLM-path action ids are
+        computed from different inputs - title vs. step text - so they're
+        deliberately not interchangeable identity spaces)."""
+
+        documents = [
+            _doc(
+                content=(
+                    "## 4. 경고 등급 통보 시 조치\n"
+                    "1. 흡입 밸브 개도를 확인한다.\n"
+                    "2. 배관 막힘 여부를 점검한다.\n"
+                ),
+            )
+        ]
+        first_items = _compose(FakeLLMClient(RuntimeError("down")), documents=documents)[0]
+        self.assertEqual(len(first_items), 2)
+        completed_id = first_items[0]["action_id"]
+
         items, _, _, _ = _compose(
-            FakeLLMClient(_response()),
+            FakeLLMClient(RuntimeError("down")),
+            documents=documents,
+            memory={"completed_action_ids": [completed_id]},
+        )
+        self.assertEqual(len(items), 1)
+        self.assertNotEqual(items[0]["action_id"], completed_id)
+
+    def test_fallback_recurrence_reissues_steps_instead_of_emptying_out(self) -> None:
+        """If EVERY step for this risk level was already completed on a past
+        alert (the hazard recurred after being fully handled once), the
+        fallback has no other content to compose from - it must re-issue the
+        same steps rather than filter down to an empty checklist, which used
+        to surface to the worker as an opaque 500 ("no grounded SOP checklist
+        items could be composed") the moment an emergency recurred on a
+        machine whose prior checklist had been fully completed."""
+
+        first_item = _compose(FakeLLMClient(RuntimeError("down")))[0][0]
+        items, _, _, _ = _compose(
+            FakeLLMClient(RuntimeError("down")),
             memory={"completed_action_ids": [first_item["action_id"]]},
         )
-        self.assertEqual(items, [])
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["action_id"], first_item["action_id"])
 
     def test_failed_action_is_marked_by_server(self) -> None:
         first_item = _compose(FakeLLMClient(_response()))[0][0]
@@ -158,6 +223,92 @@ class ComposeDocumentTypeTest(unittest.TestCase):
         self.assertTrue(fallback)
         self.assertEqual(items, [])
         self.assertEqual(references[0]["source_id"], "law_art92")
+
+
+_MULTI_SECTION_SOP = """---
+doc_id: pump_safety_manual
+---
+
+# 펌프 위험 통보 대응 표준작업절차서
+
+## 1. 적용 범위
+
+절차서 개요.
+
+## 3. 펌프 주의 등급 통보 시 조치
+
+1. 지시값을 재확인한다.
+
+## 4. 펌프 경고 등급 통보 시 조치
+
+1. 접근을 제한한다.
+
+## 5. 펌프 긴급 등급 통보 시 조치
+
+1. 비상 정지한다.
+2. 인원을 대피시킨다.
+
+## 6. 펌프 원인 점검 절차
+
+정비 담당자 전용 절차 - 초기 대응 대상이 아니다.
+"""
+
+
+class ExtractRiskSectionTest(unittest.TestCase):
+    """A worker should see only the section for the *current* risk level,
+    not the whole SOP (symptoms/root-cause/restart sections aren't the first
+    responder's job)."""
+
+    def test_emergency_returns_only_the_emergency_section(self) -> None:
+        section = _extract_risk_section(_MULTI_SECTION_SOP, RiskLevel.EMERGENCY)
+        self.assertIn("긴급 등급 통보 시 조치", section)
+        self.assertIn("비상 정지한다", section)
+        self.assertNotIn("경고 등급", section)
+        self.assertNotIn("원인 점검", section)
+
+    def test_warning_and_caution_pick_their_own_section(self) -> None:
+        warning = _extract_risk_section(_MULTI_SECTION_SOP, RiskLevel.WARNING)
+        self.assertIn("경고 등급 통보 시 조치", warning)
+        self.assertIn("접근을 제한한다", warning)
+
+        caution = _extract_risk_section(_MULTI_SECTION_SOP, "CAUTION")
+        self.assertIn("주의 등급 통보 시 조치", caution)
+        self.assertIn("지시값을 재확인한다", caution)
+
+    def test_unmatched_risk_level_returns_full_content_unchanged(self) -> None:
+        self.assertEqual(_extract_risk_section(_MULTI_SECTION_SOP, "NORMAL"), _MULTI_SECTION_SOP)
+
+    def test_content_without_matching_headings_falls_back_to_full_text(self) -> None:
+        plain_text = "설비 점검 지침입니다. 절 구분이 없습니다."
+        self.assertEqual(_extract_risk_section(plain_text, RiskLevel.EMERGENCY), plain_text)
+
+    def test_fallback_splits_the_section_into_one_item_per_step(self) -> None:
+        """Each numbered step in the risk-level section becomes its own
+        checklist item (title + instruction = that step alone), instead of
+        one item holding the whole section - see risk_logic_flow.mp4's
+        reference checklist: a handful of focused items, not one wall of
+        text."""
+
+        documents = [_doc(content=_MULTI_SECTION_SOP)]
+        items, _, fallback, _ = _compose(
+            FakeLLMClient(RuntimeError("down")),
+            documents=documents,
+            risk_level=RiskLevel.EMERGENCY,
+        )
+        self.assertTrue(fallback)
+        instructions = [item["instruction"] for item in items]
+        self.assertEqual(instructions, ["비상 정지한다.", "인원을 대피시킨다."])
+        self.assertTrue(all("원인 점검" not in text for text in instructions))
+        self.assertTrue(all(len(text) < len(_MULTI_SECTION_SOP) for text in instructions))
+
+    def test_fallback_without_a_numbered_list_stays_one_item(self) -> None:
+        """A document that doesn't use the numbered-step convention still
+        produces exactly one item (the whole matched section), same as
+        before splitting existed - nothing is silently dropped."""
+
+        items, _, fallback, _ = _compose(FakeLLMClient(RuntimeError("down")))
+        self.assertTrue(fallback)
+        self.assertEqual(len(items), 1)
 
 
 class ComposeRevisionPromptTest(unittest.TestCase):

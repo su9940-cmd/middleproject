@@ -25,6 +25,15 @@ export function Truncated({ text }) {
   );
 }
 
+/** The no-LLM fallback sets an item's title to (a possibly truncated prefix
+ * of) its own instruction text - showing both renders the same sentence
+ * twice in a row. Only render the title when it actually adds something the
+ * instruction doesn't already say. */
+function isRedundantTitle(title, instruction) {
+  if (!title || !instruction) return false;
+  return instruction.trim().startsWith(title.replace(/…$/, "").trim());
+}
+
 /** "SOP: reactor_safety_manual 5절 · 산안법: 산업안전보건기준에 관한 규칙 제241조" -
  * a compact reference labelled by source type, not the source text itself
  * (the item's own instruction already carries that). */
@@ -50,21 +59,24 @@ function citationLabel(citations) {
  * mandatory the moment status is SKIPPED (red border, blocks submit
  * upstream).
  *
- * "근거" is a static, always-visible reference tag - not a click-to-expand
- * detail panel. Earlier drafts hid it behind a toggle and re-quoted the
- * source excerpt inside it, which duplicated the item's own instruction
- * text; risk_logic_flow.mp4 (the team's reference recording) always shows
- * just the compact citation instead, no extra click needed.
+ * "근거" always shows the compact SOP/법령 reference (e.g. "SOP: ... 5절 ·
+ * 산안법: 제241조") - the item's own instruction already carries the SOP
+ * wording, so there's nothing to expand there. When a law citation is
+ * attached, the tag is a button: pressing it reveals that law's
+ * plain-language summary, so the reference stays scannable by default and
+ * the actual legal content is one click away, not shown twice at once.
  */
 export default function ChecklistItem({ item, status, note, onStatusChange, onNoteChange, readOnly }) {
+  const [lawExpanded, setLawExpanded] = useState(false);
   const citations = item.citations || [];
+  const lawCitations = citations.filter((c) => c.document_type !== "sop");
   const noteMissing = !readOnly && status === "SKIPPED" && !(note || "").trim();
 
   return (
     <div className="item">
       <div className="row">
         <div style={{ flex: 1 }}>
-          <p className="item-title">{item.title}</p>
+          {!isRedundantTitle(item.title, item.instruction) && <p className="item-title">{item.title}</p>}
           <p className="instruction">
             <Truncated text={item.instruction} />
           </p>
@@ -73,7 +85,20 @@ export default function ChecklistItem({ item, status, note, onStatusChange, onNo
             {item.required && <Badge level="chip">필수</Badge>}
             {item.previously_failed && <Badge level="danger">이전 실패 이력</Badge>}
           </div>
-          {citations.length > 0 && <span className="citation-pill">근거: {citationLabel(citations)}</span>}
+          {citations.length > 0 &&
+            (lawCitations.length > 0 ? (
+              <button type="button" className="citation-pill" onClick={() => setLawExpanded((v) => !v)}>
+                근거: {citationLabel(citations)} {lawExpanded ? "▲" : "▼"}
+              </button>
+            ) : (
+              <span className="citation-pill">근거: {citationLabel(citations)}</span>
+            ))}
+          {lawExpanded &&
+            lawCitations.map((citation, index) => (
+              <p key={`${citation.source_id}-${index}`} className="law-summary">
+                {citation.legal_reference || citation.source_id}: {citation.plain_summary || "요약이 없습니다."}
+              </p>
+            ))}
         </div>
         {readOnly ? (
           status && (

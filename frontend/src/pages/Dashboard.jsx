@@ -1,9 +1,16 @@
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Badge from "../components/Badge.jsx";
-import SensorForm from "../components/SensorForm.jsx";
-import { MACHINES, ALERT_STATUS_LABELS, RISK_LEVEL_LABELS } from "../constants/machines.js";
+import {
+  MACHINES,
+  ALERT_STATUS_LABELS,
+  RISK_LEVEL_LABELS,
+  RISK_LEVELS,
+  RISK_LEVEL_PRESETS,
+  SAFE_RECHECK_PRESET,
+} from "../constants/machines.js";
 import { getActiveAlert } from "../api/alerts.js";
+import { ingestSensorReading } from "../api/sensors.js";
 
 function initialState() {
   return Object.fromEntries(
@@ -11,24 +18,33 @@ function initialState() {
   );
 }
 
+function randomRiskLevel() {
+  return RISK_LEVELS[Math.floor(Math.random() * RISK_LEVELS.length)];
+}
+
 function formatTime(iso) {
   if (!iso) return "-";
   return new Date(iso).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
 }
 
+function buildReadingId(machineId) {
+  const timestamp = new Date().toISOString().replace(/[-:]/g, "").split(".")[0];
+  return `RD-${machineId.replace(/-/g, "")}-${timestamp}`;
+}
+
 export default function Dashboard() {
   const navigate = useNavigate();
   const [statuses, setStatuses] = useState(initialState);
-  const [openSensorForm, setOpenSensorForm] = useState(null);
+  const [submittingId, setSubmittingId] = useState(null);
   const [lastResult, setLastResult] = useState(null);
 
   const refreshMachine = useCallback(async (machineId) => {
     setStatuses((prev) => ({ ...prev, [machineId]: { ...prev[machineId], loading: true, error: null } }));
     try {
       const alert = await getActiveAlert(machineId);
-      setStatuses((prev) => ({ ...prev, [machineId]: { alert, loading: false, error: null } }));
+      setStatuses((prev) => ({ ...prev, [machineId]: { ...prev[machineId], alert, loading: false, error: null } }));
     } catch (error) {
-      setStatuses((prev) => ({ ...prev, [machineId]: { alert: null, loading: false, error } }));
+      setStatuses((prev) => ({ ...prev, [machineId]: { ...prev[machineId], alert: null, loading: false, error } }));
     }
   }, []);
 
@@ -36,109 +52,117 @@ export default function Dashboard() {
     MACHINES.forEach((machine) => refreshMachine(machine.machineId));
   }, [refreshMachine]);
 
-  function handleRowClick(machine, alert) {
+  function handleCardClick(machine, alert) {
     if (!alert) return;
     navigate(`/machines/${machine.machineId}/worker`);
   }
 
-  function toggleSensorForm(event, machineId) {
+  async function handleSensorInput(event, machine) {
     event.stopPropagation();
     setLastResult(null);
-    setOpenSensorForm((prev) => (prev === machineId ? null : machineId));
-  }
-
-  function handleSubmitted(machineId, result) {
-    setLastResult({ machineId, ...result });
-    refreshMachine(machineId);
+    setSubmittingId(machine.machineId);
+    const level = randomRiskLevel();
+    try {
+      const payload = {
+        ...SAFE_RECHECK_PRESET,
+        ...RISK_LEVEL_PRESETS[machine.machineType][level],
+        reading_id: buildReadingId(machine.machineId),
+        machine_id: machine.machineId,
+        machine_type: machine.machineType,
+        measured_at: new Date().toISOString(),
+        measurement_mode: "PERIODIC",
+      };
+      const result = await ingestSensorReading(payload);
+      setLastResult({ machineId: machine.machineId, ...result });
+      await refreshMachine(machine.machineId);
+    } catch (error) {
+      setLastResult({ machineId: machine.machineId, error });
+    } finally {
+      setSubmittingId(null);
+    }
   }
 
   return (
     <>
       <div className="page-header">
-        <h1>설비 대시보드</h1>
+        <h1>알림 센터</h1>
         <p>
-          활성 경보가 있는 설비 행을 클릭하면 체크리스트 화면으로 이동합니다. 실제 IoT 장비가 없는
-          데모라 센서 값은 각 행의 "센서 입력"으로 직접 <code>POST /sensors/ingest</code>를 호출합니다.
+          활성 경보가 있는 설비를 탭하면 체크리스트로 이동해요. 실제 IoT 장비가 없는 데모라 "센서 입력"을
+          누르면 정상 → 주의 → 경고 → 긴급 순으로 한 단계씩 시뮬레이션 값을 제출합니다.
         </p>
       </div>
-      <div className="card">
-        <table className="plain">
-          <thead>
-            <tr>
-              <th>설비</th>
-              <th>위험단계</th>
-              <th>경보상태</th>
-              <th>반복</th>
-              <th>갱신</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {MACHINES.map((machine) => {
-              const { alert, loading, error } = statuses[machine.machineId] || {
-                alert: null,
-                loading: true,
-                error: null,
-              };
-              const clickable = Boolean(alert);
-              const formOpen = openSensorForm === machine.machineId;
 
-              return (
-                <Fragment key={machine.machineId}>
-                  <tr
-                    className="row"
-                    style={{ cursor: clickable ? "pointer" : "default" }}
-                    onClick={() => handleRowClick(machine, alert)}
-                  >
-                    <td>
-                      {machine.machineId} · {machine.machineType}
-                    </td>
-                    <td>{!loading && !error && <Badge level={alert?.risk_level || "NORMAL"} />}</td>
-                    <td style={{ fontSize: 12.5, color: "var(--muted)" }}>
-                      {loading
-                        ? "확인 중..."
-                        : error
-                          ? "오류"
-                          : alert
-                            ? `${ALERT_STATUS_LABELS[alert.alert_status] || alert.alert_status} · 확인필요`
-                            : "없음"}
-                    </td>
-                    <td style={{ fontSize: 12, color: "var(--faint)" }}>
-                      {alert && alert.repeat_count > 0 ? `반복 ${alert.repeat_count}회` : "-"}
-                    </td>
-                    <td style={{ fontSize: 12, color: "var(--faint)" }}>{formatTime(alert?.updated_at)}</td>
-                    <td>
-                      <button type="button" className="ghost" onClick={(event) => toggleSensorForm(event, machine.machineId)}>
-                        센서 입력
-                      </button>
-                    </td>
-                  </tr>
-                  {formOpen && (
-                    <tr>
-                      <td colSpan={6} style={{ padding: "12px 8px" }} onClick={(event) => event.stopPropagation()}>
-                        <SensorForm
-                          machine={machine}
-                          measurementMode={alert?.alert_status === "WAITING_RECHECK" ? "IMMEDIATE_RECHECK" : "PERIODIC"}
-                          onSubmitted={(result) => handleSubmitted(machine.machineId, result)}
-                        />
-                        {lastResult && lastResult.machineId === machine.machineId && (
-                          <div className="fill" style={{ marginTop: 10 }}>
-                            판정 결과: <b>{RISK_LEVEL_LABELS[lastResult.risk_level] || lastResult.risk_level}</b> ·{" "}
-                            {ALERT_STATUS_LABELS[lastResult.alert_status] || lastResult.alert_status}
-                          </div>
-                        )}
-                      </td>
-                    </tr>
+      <div className="alert-list">
+        {MACHINES.map((machine) => {
+          const { alert, loading, error } = statuses[machine.machineId] || {
+            alert: null,
+            loading: true,
+            error: null,
+          };
+          const clickable = Boolean(alert);
+          const submitting = submittingId === machine.machineId;
+          const result = lastResult?.machineId === machine.machineId ? lastResult : null;
+
+          return (
+            <div
+              key={machine.machineId}
+              className={`alert-list-item${clickable ? " clickable" : ""}`}
+              onClick={() => handleCardClick(machine, alert)}
+            >
+              <div className="row-top">
+                {!loading && !error && <Badge level={alert?.risk_level || "NORMAL"} />}
+                <span className="machine-name">{machine.displayName}</span>
+                <button
+                  type="button"
+                  className="ghost"
+                  disabled={submitting}
+                  onClick={(event) => handleSensorInput(event, machine)}
+                >
+                  {submitting ? "제출 중..." : "센서 입력"}
+                </button>
+              </div>
+              <div className="row-meta">
+                <span>{machine.machineId}</span>
+                <span className="sep">·</span>
+                <span>
+                  {loading
+                    ? "확인 중..."
+                    : error
+                      ? "오류"
+                      : alert
+                        ? `${ALERT_STATUS_LABELS[alert.alert_status] || alert.alert_status} · 확인필요`
+                        : "활성 경보 없음"}
+                </span>
+                {alert && alert.repeat_count > 0 && (
+                  <>
+                    <span className="sep">·</span>
+                    <span>반복 {alert.repeat_count}회</span>
+                  </>
+                )}
+                <span className="sep">·</span>
+                <span>{formatTime(alert?.updated_at)}</span>
+              </div>
+
+              {result && (
+                <div className="fill" style={{ marginTop: 10 }} onClick={(event) => event.stopPropagation()}>
+                  {result.error ? (
+                    <span className="status-block error">{result.error.message}</span>
+                  ) : (
+                    <>
+                      판정 결과: <b>{RISK_LEVEL_LABELS[result.risk_level] || result.risk_level}</b> ·{" "}
+                      {ALERT_STATUS_LABELS[result.alert_status] || result.alert_status}
+                    </>
                   )}
-                </Fragment>
-              );
-            })}
-          </tbody>
-        </table>
-        <p style={{ fontSize: 11.5, color: "var(--faint)", margin: "10px 0 0" }}>
-          1=정상 · 2=주의 · 3=경고 · 4=긴급(삼각형)
-        </p>
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
+
+      <p style={{ fontSize: 11, color: "var(--faint)", margin: "12px 2px 0" }}>
+        1=정상 · 2=주의 · 3=경고 · 4=긴급(삼각형)
+      </p>
     </>
   );
 }

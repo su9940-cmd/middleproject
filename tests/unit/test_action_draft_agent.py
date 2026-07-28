@@ -121,6 +121,23 @@ class ActionDraftAgentRevisionTest(unittest.TestCase):
         self.assertEqual(draft["version"], 2)
         self.assertTrue(draft["checklist_id"].endswith("-V2"))
 
+    def test_recurrence_on_same_alert_gets_a_distinct_checklist_id(self) -> None:
+        """A still-open alert (e.g. MONITORING -> abnormal again) keeps its
+        alert_id across the recurrence, so `repeat_count` (already tracked by
+        `alert_lifecycle_node` per recurrence) must disambiguate the
+        checklist_id - otherwise the second draft's checklist_id collides
+        with the first and `ChecklistRepository.save_checklist`'s
+        idempotency check silently keeps serving the stale, already-completed
+        checklist instead of the new one."""
+
+        first = ActionDraftAgent(FakeLLMClient(_response()))(_state())["action_draft"]
+        second = ActionDraftAgent(FakeLLMClient(_response()))(
+            _state(repeat_count=1)
+        )["action_draft"]
+
+        self.assertNotEqual(first["checklist_id"], second["checklist_id"])
+        self.assertTrue(second["checklist_id"].endswith("-R1-V1"))
+
 
 class ActionDraftAgentFailureTest(unittest.TestCase):
     def test_missing_risk_or_documents_raises(self) -> None:

@@ -6,6 +6,7 @@ manual_id: [compressor_safety_manual, pump_safety_manual]
 law_name: 산업안전보건기준에 관한 규칙
 article: 제93조
 title: 방호장치의 해체 금지
+plain_summary: 방호장치는 정비 중 외엔 해체 금지, 정비 후 즉시 복구.
 law_version: "시행 2026. 3. 2. / 고용노동부령 제450호, 2025. 9. 1., 일부개정"
 law_checked_at: "2026-07-21, 국가법령정보센터(law.go.kr)"
 ---
